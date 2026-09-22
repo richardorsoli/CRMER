@@ -1,0 +1,268 @@
+"""Testes da consulta sem chamar o Nomus."""
+
+from __future__ import annotations
+
+import unittest
+from datetime import date
+
+import requests
+
+from backend.nomus_client import NomusAuthError, NomusClient, NomusError
+from backend.transformer import (
+    montar_carteira,
+    parse_nomus_date,
+    parse_ptbr_float,
+)
+
+
+class _Resposta:
+    def __init__(self, status: int, payload, headers=None, text: str = ""):
+        self.status_code = status
+        self._payload = payload
+        self.headers = headers or {}
+        self.content = b"{}" if payload is not None else b""
+        self.text = text
+
+    def json(self):
+        if isinstance(self._payload, Exception):
+            raise self._payload
+        return self._payload
+
+    def raise_for_status(self):
+        if self.status_code >= 400:
+            erro = requests.HTTPError(f"status {self.status_code}")
+            erro.response = self
+            raise erro
+
+
+class _Sessao:
+    def __init__(self, respostas):
+        self._respostas = list(respostas)
+        self.headers: dict[str, str] = {}
+        self.chamadas: list[dict] = []
+
+    def get(self, url, params=None, timeout=None):
+        self.chamadas.append({"url": url, "params": params, "timeout": timeout})
+        if not self._respostas:
+            raise AssertionError("consulta além das respostas preparadas")
+        return self._respostas.pop(0)
+
+    def close(self):
+        return None
+
+
+def _cliente(identificador, nome, vendedores=None, **extra):
+    base = {
+        "id": identificador,
+        "codigo": f"C{identificador}",
+        "cnpj": "11222333000181",
+        "ativo": True,
+        "razaoSocial": nome,
+        "nome": extra.pop("fantasia", nome),
+        "email": "compras@example.com",
+        "telefone": "(11) 98810-2201",
+        "municipio": "São Paulo",
+        "uf": "sp",
+        "vendedores": vendedores if vendedores is not None else [{"id": 3237, "nome": "NATALIA"}],
+    }
+    base.update(extra)
+    return base
+
+
+def _produto(identificador, grupo, descricao):
+    return {
+        "id": identificador,
+        "codigo": f"AI {identificador:05d}",
+        "descricao": descricao,
+        "nomeGrupoProduto": grupo,
+        "custoPadraoCompra": "10,50",
+        "siglaUnidadeMedida": "UN",
+        "empresasSetoresEstoque": [{"saldoEstoqueAtualEmpresa": "2,00"}],
+    }
+
+
+def _pedido(identificador, cliente, emissao, valor, produto, vendedor=3237, entrega=""):
+    return {
+        "id": identificador,
+        "codigoPedido": f"PD {identificador:05d}",
+        "idPessoaCliente": cliente,
+        "idPessoaVendedor": vendedor,
+        "valorTotal": valor,
+        "dataEmissao": emissao,
+        "dataEntregaPadrao": entrega,
+        "itensPedido": [
+            {"idProduto": produto, "quantidade": "2,00", "valorUnitario": "100,00", "status": 1}
+        ],
+    }
+
+
+class ParseTests(unittest.TestCase):
+    def test_dinheiro_ptbr(self):
+        self.assertEqual(parse_ptbr_float("785,70"), 785.70)
+        self.assertEqual(parse_ptbr_float("4150,00"), 4150.0)
+        self.assertEqual(parse_ptbr_float("4.150,00"), 4150.0)
+        self.assertEqual(parse_ptbr_float("4.150"), 4150.0)
+        self.assertEqual(parse_ptbr_float("R$ 1.234,5"), 1234.5)
+
+    def test_dinheiro_recusa_vazio(self):
+        with self.assertRaises(ValueError):
+            parse_ptbr_float("   ")
+
+    def test_data_nomus(self):
+        self.assertEqual(parse_nomus_date("22/09/2026").date(), date(2026, 9, 22))
+        self.assertEqual(parse_nomus_date("22/09/2026 14:30:00").hour, 14)
+        with self.assertRaises(ValueError):
+            parse_nomus_date("2026-09-22")
+
+
+class CarteiraTests(unittest.TestCase):
+    def test_filtra_natalia_e_classifica_uma_fila(self):
+        produtos = [
+            _produto(1, "Saneamento", "Caixa de hidrômetro"),
+            _produto(2, "Gás", "Abrigo de gás GLP"),
+            _produto(3, "Solda", "Eletrodo"),
+        ]
+        clientes = [
+            _cliente(1, "Construtora Pacaembu", fantasia="Pacaembu"),
+            _cliente(2, "Construtora Horizonte", fantasia="Horizonte"),
+            _cliente(3, "Construtora Alfa", fantasia="Alfa"),
+            _cliente(4, "Núcleo Socioambiental Nova Europa", fantasia="Nova Europa"),
+            _cliente(5, "Outra Carteira", vendedores=[{"id": 9, "nome": "OUTRO"}]),
+            _cliente(6, "Cliente Sem Pedido"),
+        ]
+        pedidos = [
+            _pedido(10, 1, "01/09/2026", "1000,00", 1),
+            _pedido(11, 2, "25/09/2025", "800,00", 2),
+            _pedido(12, 3, "01/01/2026", "5000,00", 2),
+            _pedido(13, 1, "02/09/2026", "50,00", 1, vendedor=9),
+            _pedido(14, 5, "02/09/2026", "999,00", 1),
+            _pedido(15, 4, "02/09/2026", "10,00", 1),
+        ]
+        carteira = montar_carteira(clientes, produtos, pedidos)
+        ids = {ficha.nomusId for ficha in carteira.clients}
+        self.assertEqual(ids, {1, 2, 3, 5, 6})
+        por_id = {ficha.nomusId: ficha for ficha in carteira.clients}
+
+        self.assertEqual(por_id[1].ranking, "contato")
+        self.assertEqual(por_id[1].proximoContato, "2026-09-22")
+        self.assertEqual(por_id[1].linhas, ["Saneamento"])
+        self.assertEqual(por_id[1].cnpj, "11.222.333/0001-81")
+        self.assertEqual(por_id[1].uf, "SP")
+        self.assertEqual(por_id[1].tipo, "Construtora")
+        self.assertEqual(por_id[1].pedidos[0].valor, 1000.0)
+        self.assertEqual(por_id[1].orcamentos, [])
+
+        self.assertEqual(por_id[2].ranking, "sazonal")
+        self.assertIn("Setembro e outubro", por_id[2].janelaSazonal)
+
+        self.assertEqual(por_id[3].ranking, "inativos")
+        self.assertEqual(por_id[3].curva, "A")
+        self.assertEqual(por_id[6].ranking, "contato")
+        self.assertEqual(por_id[6].proximoContato, "2026-09-22")
+        self.assertNotIn("resposta", {ficha.ranking for ficha in carteira.clients})
+        self.assertTrue(any("orçamento" in aviso for aviso in carteira.avisos))
+        self.assertTrue(any("comunitária" in aviso for aviso in carteira.avisos))
+        self.assertEqual({produto.id for produto in carteira.produtos}, {1, 2})
+
+    def test_pedido_no_meio_do_ciclo_sai_da_agenda_de_hoje(self):
+        carteira = montar_carteira(
+            [_cliente(1, "Instaladora Beta")],
+            [_produto(1, "Gás", "Abrigo para medidor de gás")],
+            [_pedido(10, 1, "01/08/2026", "200,00", 1)],
+        )
+        ficha = carteira.clients[0]
+        self.assertEqual(ficha.ranking, "contato")
+        self.assertEqual(ficha.tipo, "Instaladora")
+        self.assertEqual(ficha.proximoContato, "2026-10-06")
+
+    def test_entrega_com_menos_de_sete_dias_entra_na_agenda(self):
+        cliente = [_cliente(1, "Instaladora Beta")]
+        produto = [_produto(1, "Gás", "Abrigo de gás GLP")]
+        perto = montar_carteira(
+            cliente,
+            produto,
+            [_pedido(10, 1, "01/08/2026", "200,00", 1, entrega="28/09/2026")],
+        )
+        no_limite = montar_carteira(
+            cliente,
+            produto,
+            [_pedido(10, 1, "01/08/2026", "200,00", 1, entrega="29/09/2026")],
+        )
+        self.assertEqual(perto.clients[0].proximoContato, "2026-09-22")
+        self.assertEqual(no_limite.clients[0].proximoContato, "2026-10-06")
+
+    def test_ignora_registro_invalido_sem_derrubar_o_lote(self):
+        carteira = montar_carteira(
+            [{"id": "x"}, _cliente(1, "Construtora Alfa")],
+            [_produto(1, "Elétrica", "Abrigo de medição elétrica")],
+            [_pedido(10, 1, "10/05/2026", "300,00", 1)],
+        )
+        self.assertEqual(len(carteira.clients), 1)
+        self.assertTrue(any("Cliente ignorado" in aviso for aviso in carteira.avisos))
+
+
+class ClienteHttpTests(unittest.TestCase):
+    def test_pagina_ate_lista_vazia_e_respeita_429(self):
+        sessao = _Sessao(
+            [
+                _Resposta(429, [], headers={"Retry-After": "0"}),
+                _Resposta(200, [{"id": 1}, {"id": 2}]),
+                _Resposta(200, []),
+            ]
+        )
+        esperas: list[float] = []
+        cliente = NomusClient(
+            base_url="https://ehe.example/rest",
+            auth_token="tokensecreto",
+            session=sessao,
+            espera_pagina=0,
+            dormir=esperas.append,
+        )
+        linhas = cliente.listar_clientes()
+        self.assertEqual([item["id"] for item in linhas], [1, 2])
+        self.assertEqual(sessao.chamadas[0]["params"], {"pagina": 1})
+        self.assertEqual(sessao.chamadas[-1]["params"], {"pagina": 2})
+        self.assertEqual(sessao.headers["Authorization"], "Basic tokensecreto")
+        self.assertTrue(esperas)
+
+    def test_pagina_repetida_nao_entra_em_loop(self):
+        sessao = _Sessao([_Resposta(200, [{"id": 7}]), _Resposta(200, [{"id": 7}])])
+        cliente = NomusClient(
+            base_url="https://ehe.example/rest",
+            auth_token="abc",
+            session=sessao,
+            espera_pagina=0,
+            dormir=lambda _: None,
+        )
+        self.assertEqual(len(cliente.listar_produtos()), 1)
+
+    def test_401_nao_revela_o_token(self):
+        sessao = _Sessao([_Resposta(401, {"erro": "tokensecreto"}, text="tokensecreto")])
+        cliente = NomusClient(
+            base_url="https://ehe.example/rest",
+            auth_token="tokensecreto",
+            session=sessao,
+            dormir=lambda _: None,
+        )
+        with self.assertRaises(NomusAuthError) as captura:
+            cliente.listar_pedidos_venda()
+        self.assertNotIn("tokensecreto", str(captura.exception))
+
+    def test_formato_inesperado_explica_a_pagina(self):
+        sessao = _Sessao([_Resposta(200, {"content": [{"id": 1}]})])
+        cliente = NomusClient(
+            base_url="https://ehe.example/rest",
+            auth_token="abc",
+            session=sessao,
+            dormir=lambda _: None,
+        )
+        with self.assertRaises(NomusError):
+            cliente.listar_clientes()
+
+    def test_token_ausente(self):
+        with self.assertRaises(NomusAuthError):
+            NomusClient(base_url="https://ehe.example/rest", auth_token="")
+
+
+if __name__ == "__main__":
+    unittest.main()

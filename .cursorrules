@@ -1,0 +1,121 @@
+# CRMER — regras do projeto
+
+Estas regras orientam qualquer alteração no protótipo CRMER. O produto é um CRM sob medida, não um CRM genérico.
+
+## Contexto do negócio
+
+A EHE Indústria fabrica caixas e abrigos metálicos para construção civil, no modelo B2B. As linhas de produto são:
+
+- Gás: abrigos de GLP, abrigos para medidor e abrigos para regulador.
+- Saneamento: caixas de hidrômetro e caixas de inspeção.
+- Elétrica: abrigos de medição e caixas de passagem.
+- Fechamento: portas e fechamentos de shaft.
+
+O cliente típico é uma construtora ou uma instaladora. Quem decide a compra costuma ser comprador, suprimentos ou engenharia de obra. O ciclo envolve obra, especificação, orçamento e reposição sazonal. A conversa comercial cita a obra, o padrão de caixa e o prazo de instalação — não um funil abstrato de leads.
+
+A usuária principal do time de vendas é a vendedora Natália. As telas existem para a rotina dela: saber o que fazer hoje, não perder orçamento parado e registrar o que a obra precisa com poucos cliques.
+
+O CRMER terá integração em duas fases com o ERP Nomus Industrial, via API REST já mapeada em Postman:
+
+- Fase 1 — consulta: ler carteira, pedidos e faturamento. No protótipo esta leitura é simulada e deve aparecer como simulação, nunca como integração já ativa.
+- Fase 2 — operação comercial: devolver ao Nomus follow-ups, anotações de contato e o estado dos orçamentos, quando a API de escrita estiver disponível.
+
+Enquanto o backend não existe, a carteira de clientes vive em memória e os usuários de teste usam `localStorage`. Atualizar a página restaura clientes e anotações. A sessão e as contas criadas no cadastro permanecem neste navegador.
+
+## Entidades comunitárias
+
+A arquitetura precisa permanecer modular para, no futuro, atender também:
+
+- Núcleo Socioambiental Nova Europa
+- Fórum
+- Guardinha
+
+Essas entidades não são clientes da carteira comercial da EHE e não usam o modelo de pedido do Nomus. O núcleo compartilhado é autenticação, casca de navegação e tokens visuais. Cada entidade futura deve ter o próprio módulo de dados e de telas. Não misture ficha de construtora, orçamento de abrigo e histórico do Nomus com o domínio comunitário.
+
+## Estrutura de pastas
+
+Esta estrutura é obrigatória. Arquivo novo de estilo, script ou dado simulado não fica na raiz.
+
+- `index.html` — única página da casca.
+- `css/` — folhas de estilo. A folha atual é `css/styles.css`. Novo CSS entra nesta pasta e é referenciado por caminho relativo a partir do HTML.
+- `js/mock-data.js` — carteira simulada, rankings, metas e usuários de teste. Sem senha em texto puro: só sal e hash SHA-256.
+- `js/auth.js` — hash, cadastro, login e sessão.
+- `js/app.js` — estado, rankings, busca rápida e gaveta.
+- Futuro módulo de entidade comunitária: `js/<modulo>.js` e, se precisar de estilo próprio, `css/<modulo>.css`.
+- `backend/` — consulta da Fase 1 ao Nomus (cliente HTTP, transformação e exportação). Não é módulo de tela.
+- `backend/output/` — JSON gerado com dado comercial real. Não versionar. O `.env` com o token também não entra no Git.
+
+Os scripts são clássicos, nesta ordem: `mock-data.js`, `auth.js`, `app.js`. O protótipo abre por `file://`. Não use `import`/`export` de módulo ES enquanto não houver servidor local, porque esse modo quebra ao abrir o arquivo direto.
+
+## Autenticação
+
+- Contas de teste já previstas: Natália (vendedora) e Helena Duarte (administrador). As senhas de demonstração ficam só na tela de login, nunca no objeto gravado.
+- Sessão em `localStorage` (`crmer.session`): nome, e-mail, perfil e token simulado. Não grave senha, hash nem sal na sessão.
+- Conta criada no cadastro vai para `crmer.users` com sal e hash. Ela precisa conseguir entrar de novo e o cabeçalho mostra o nome ativo.
+- Login compara o hash. Mensagem de erro não diz se o e-mail existe.
+
+## Busca rápida
+
+A barra no topo do Dashboard e da Carteira busca razão social, nome fantasia, CNPJ, comprador e telefone/WhatsApp. Atalhos: `/` fora de campo de texto, e `Ctrl+K` (ou `Cmd+K`). O resultado abre a ficha do cliente. A busca espera um instante curto antes de filtrar.
+
+## Stack e diretrizes de implementação
+
+- Front-end atual: HTML5 semântico, CSS3 com variáveis, Flexbox e Grid, JavaScript Vanilla (ES6+). Sem framework e sem biblioteca de UI.
+- CSS: paleta em variáveis, contraste legível, layout limpo, responsivo, selos de status e de prioridade. Evite visual genérico de produto SaaS (gradiente roxo, glassmorphism, excesso de sombra).
+- Copie de interface em português do Brasil. Comentários de código em português quando a regra de negócio não for óbvia.
+- Backend futuro: Python com FastAPI e SQLite ou PostgreSQL. Não antecipe o servidor dentro do HTML.
+- Integração: o cliente HTTP fica em `backend/` e fala com a API do Nomus. O front-end não chama o Nomus direto.
+- Fase 1 é só consulta. O protótipo estático continua com a carteira simulada até o JSON de `backend/output/` ser incorporado de propósito. A interface não deve apresentar essa consulta como integração já ativa.
+- Token do Nomus somente na variável `NOMUS_AUTH_TOKEN`. Não gravar segredo em código, em `js/` nem no JSON exportado.
+- Baixo atrito para a Natália: poucos campos editáveis na ficha (anotação da obra e data do próximo contato). Dados de pedido ficam somente leitura enquanto vierem do Nomus.
+- Dados simulados devem parecer a rotina real: construtoras, instaladoras, caixas de hidrômetro, abrigos de gás, obras e orçamentos. A data de referência do protótipo é 22 de setembro de 2026 (`TODAY` em `js/mock-data.js`). Novos follow-ups de demonstração devem respeitar essa data para a fila de hoje continuar coerente.
+
+## Regras de negócio dos 4 rankings
+
+Cada cliente do protótipo tem uma fila primária em `ranking`. As abas filtram por essa fila. Não duplique o mesmo cliente nas quatro abas.
+
+1. Devem receber contato (`contato`)
+   - Follow-up pendente para hoje ou atrasado.
+   - É a fila de trabalho do dia da Natália.
+   - O indicador "Follow-ups de hoje" conta somente data vazia, hoje ou vencida.
+   - Reagendar para uma data futura não apaga a ficha: ela continua nesta aba, no grupo "Reagendados", e sai da agenda de hoje.
+   - Selo atrasado quando a data é anterior à referência; selo "Contato hoje" quando a data é a referência.
+
+2. Aguardando resposta (`resposta`)
+   - Há orçamento enviado e o comprador ainda não retornou.
+   - Mostrar código, item, valor e dias desde o envio.
+   - Não tratar como inativo: a negociação continua viva.
+   - Ordenar do orçamento mais antigo para o mais novo.
+
+3. Compram nesta época (`sazonal`)
+   - O histórico mostra compra recorrente neste período do ano, mesmo sem pedido aberto.
+   - O motivo do contato é a janela da obra (escolas, shaft, reposição de estoque), não uma cobrança de orçamento.
+   - Informar a janela sazonal no selo e no resumo.
+
+4. Importantes inativos (`inativos`)
+   - Curva A ou B: faturamento relevante e sem compra recente.
+   - No protótipo, a referência prática é última compra há mais de 120 dias, com curva explícita na ficha.
+   - O contato é de reativação. Não reabrir sozinho um orçamento antigo.
+   - Ordenar pelo faturamento de 12 meses, do maior para o menor.
+
+Ao incluir um cliente manualmente, ele entra na fila escolhida. Se a fila for "Devem receber contato" e a data vier vazia, usar a data de referência para que ele apareça no dia.
+
+## O que preservar na interface
+
+- Tela de autenticação com abas de entrar e de criar conta. Só entra quem tem conta de teste ou cadastro gravado neste navegador.
+- Dashboard com a performance de quem está logado (faturamento, meta, orçamentos abertos, follow-ups de hoje), o nome dessa pessoa no cabeçalho e "Performance Geral EHE" (faturamento da equipe e volume por linha).
+- Busca rápida global no topo, com atalho e abertura da ficha.
+- Carteira com as quatro abas e o botão "+ Novo Cliente".
+- Gaveta de ficha com dados do cliente, histórico recente de pedidos no formato Nomus e o bloco "Anotações da Natália" (texto livre e data do próximo contato).
+
+## Git
+
+Ao concluir qualquer alteração de código, apresente ao usuário os comandos prontos, nesta ordem:
+
+```text
+git add <arquivos relevantes>
+git commit -m "<mensagem curta no imperativo, em português, explicando o porquê>"
+git push
+```
+
+Não execute commit nem push sem pedido explícito. Não use `git commit --amend`, `git push --force` nem altere `git config`. Não inclua `.env`, credenciais ou outros segredos no `git add`.

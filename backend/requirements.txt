@@ -1,0 +1,4 @@
+# Python 3.11+
+# Fase 1 é um script de consulta. FastAPI entra quando houver servidor.
+requests>=2.31,<3
+pydantic>=2.6,<3

@@ -1,0 +1,26 @@
+# Ambientes e segredos Python
+venv/
+.venv/
+env/
+.env
+.env.*
+!.env.example
+__pycache__/
+*.py[cod]
+
+# Carteira real gerada pela consulta ao Nomus
+backend/output/*
+!backend/output/.gitkeep
+
+# IDEs
+.vscode/
+.idea/
+*.swp
+
+# Temporários do sistema
+.DS_Store
+Thumbs.db
+ehthumbs.db
+Desktop.ini
+*.tmp
+*~
