@@ -17,10 +17,10 @@ A usuária principal do time de vendas é a vendedora Natália. As telas existem
 
 O CRMER terá integração em duas fases com o ERP Nomus Industrial, via API REST já mapeada em Postman:
 
-- Fase 1 — consulta: ler carteira, pedidos e faturamento. No protótipo esta leitura é simulada e deve aparecer como simulação, nunca como integração já ativa.
+- Fase 1 — consulta: ler carteira, pedidos e faturamento. O navegador não chama o Nomus. Se `backend/output/carteira_natalia.json` responder ao `fetch` local, essa é a base da carteira e a tela diz que a leitura veio do arquivo. Sem o arquivo, ou em `file://`, permanece a carteira simulada. Nunca apresente isso como integração já ativa.
 - Fase 2 — operação comercial: devolver ao Nomus follow-ups, anotações de contato e o estado dos orçamentos, quando a API de escrita estiver disponível.
 
-Enquanto o backend não existe, a carteira de clientes vive em memória e os usuários de teste usam `localStorage`. Atualizar a página restaura clientes e anotações. A sessão e as contas criadas no cadastro permanecem neste navegador.
+A base da carteira é relida no login. Anotações, data do próximo contato e clientes incluídos na tela ficam em `localStorage` (`crmer.clients` e `crmer.clientEdits`) e sobrevivem à atualização da página. A sessão e as contas criadas no cadastro também permanecem neste navegador.
 
 ## Entidades comunitárias
 
@@ -52,6 +52,7 @@ Os scripts são clássicos, nesta ordem: `mock-data.js`, `auth.js`, `app.js`. O 
 - Contas de teste já previstas: Natália (vendedora) e Helena Duarte (administrador). As senhas de demonstração ficam só na tela de login, nunca no objeto gravado.
 - Sessão em `localStorage` (`crmer.session`): nome, e-mail, perfil e token simulado. Não grave senha, hash nem sal na sessão.
 - Conta criada no cadastro vai para `crmer.users` com sal e hash. Ela precisa conseguir entrar de novo e o cabeçalho mostra o nome ativo.
+- Senha nova: mínimo de 8 caracteres, uma maiúscula, um número e um caractere especial. As contas de teste já gravadas em `js/mock-data.js` continuam entrando com a senha da tela, sem passar por essa regra.
 - Login compara o hash. Mensagem de erro não diz se o e-mail existe.
 
 ## Busca rápida
@@ -65,7 +66,9 @@ A barra no topo do Dashboard e da Carteira busca razão social, nome fantasia, C
 - Copie de interface em português do Brasil. Comentários de código em português quando a regra de negócio não for óbvia.
 - Backend futuro: Python com FastAPI e SQLite ou PostgreSQL. Não antecipe o servidor dentro do HTML.
 - Integração: o cliente HTTP fica em `backend/` e fala com a API do Nomus. O front-end não chama o Nomus direto.
-- Fase 1 é só consulta. O protótipo estático continua com a carteira simulada até o JSON de `backend/output/` ser incorporado de propósito. A interface não deve apresentar essa consulta como integração já ativa.
+- Fase 1 é só consulta. Depois do login, `carregarCarteira()` tenta `backend/output/dados_ehe.json` (carteira, produtos e histórico de preços). Falhou o `fetch`, usa `js/mock-data.js`. Edições locais da Natália são reaplicadas por cima. A interface não deve apresentar essa consulta como integração já ativa.
+- A consulta ao Nomus espera 1,2 s entre páginas. No status 429, espera 45 s e tenta no máximo quatro vezes. A rotina diária é de segunda a sexta, às 12:00, na janela de almoço (`python -m backend.scheduler`).
+- O menu Produtos lista o catálogo das quatro linhas. A ficha do cliente mostra a condição negociada e o histórico de preço unitário em gráfico nativo, somente leitura.
 - Token do Nomus somente na variável `NOMUS_AUTH_TOKEN`. Não gravar segredo em código, em `js/` nem no JSON exportado.
 - Baixo atrito para a Natália: poucos campos editáveis na ficha (anotação da obra e data do próximo contato). Dados de pedido ficam somente leitura enquanto vierem do Nomus.
 - Dados simulados devem parecer a rotina real: construtoras, instaladoras, caixas de hidrômetro, abrigos de gás, obras e orçamentos. A data de referência do protótipo é 22 de setembro de 2026 (`TODAY` em `js/mock-data.js`). Novos follow-ups de demonstração devem respeitar essa data para a fila de hoje continuar coerente.

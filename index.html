@@ -1,0 +1,291 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="CRMER — protótipo de carteira comercial da EHE Indústria para a vendedora Natália.">
+  <meta name="theme-color" content="#0e2438">
+  <title>CRMER · Carteira comercial EHE</title>
+  <link rel="stylesheet" href="css/styles.css">
+</head>
+<body>
+  <a class="skip-link" href="#conteudo">Ir para o conteúdo</a>
+  <noscript>
+    <p class="noscript">Ative o JavaScript para navegar no protótipo CRMER.</p>
+  </noscript>
+
+  <section id="screen-auth" class="auth-layout" aria-labelledby="auth-title">
+    <div class="auth-brand">
+      <p class="brand-kicker">EHE Indústria</p>
+      <h1 id="auth-title">CRMER</h1>
+      <p class="brand-lead">Carteira comercial de caixas e abrigos metálicos para construção civil.</p>
+      <ul class="auth-points">
+        <li>Gás, saneamento, elétrica e fechamento.</li>
+        <li>Construtoras e instaladoras na rotina da Natália.</li>
+        <li>Pedidos simulados no formato do Nomus Industrial.</li>
+      </ul>
+    </div>
+
+    <div class="auth-panel">
+      <div class="auth-card">
+        <div class="auth-tabs" role="tablist" aria-label="Acesso">
+          <button type="button" id="tab-login" class="auth-tab" role="tab" data-action="auth-tab" data-tab="login" aria-selected="true" aria-controls="form-login">Entrar</button>
+          <button type="button" id="tab-register" class="auth-tab" role="tab" data-action="auth-tab" data-tab="register" aria-selected="false" aria-controls="form-register">Criar conta</button>
+        </div>
+
+        <form id="form-login">
+          <label>
+            E-mail ou usuário
+            <input type="text" name="identificador" autocomplete="username" placeholder="natalia ou e-mail profissional">
+          </label>
+          <label>
+            Senha
+            <span class="password-control">
+              <input id="login-senha" type="password" name="senha" autocomplete="current-password" placeholder="senha">
+              <button type="button" class="password-toggle" data-action="toggle-password" aria-controls="login-senha" aria-pressed="false" aria-label="Mostrar senha">
+                <svg class="icon-eye" viewBox="0 0 24 24" aria-hidden="true"><path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7S2 12 2 12z"/><circle cx="12" cy="12" r="3"/></svg>
+                <svg class="icon-eye-off" viewBox="0 0 24 24" aria-hidden="true" hidden><path d="M3 3l18 18"/><path d="M10.6 10.6a3 3 0 0 0 4.2 4.2"/><path d="M9.9 5.2A10.8 10.8 0 0 1 12 5c6.5 0 10 7 10 7a18.4 18.4 0 0 1-3.2 4.4"/><path d="M6.1 6.1C3.8 7.8 2 12 2 12s3.5 7 10 7a10.7 10.7 0 0 0 4.1-.8"/></svg>
+              </button>
+            </span>
+          </label>
+          <button type="submit" class="btn btn-primary btn-block">Acessar carteira</button>
+        </form>
+
+        <form id="form-register" hidden>
+          <label>
+            Nome
+            <input type="text" name="nome" autocomplete="name" placeholder="Seu nome">
+          </label>
+          <label>
+            E-mail
+            <input type="email" name="email" autocomplete="email" placeholder="voce@empresa.com">
+          </label>
+          <label>
+            Perfil
+            <select name="perfil">
+              <option value="vendedora">Vendedora</option>
+              <option value="vendedor">Vendedor</option>
+              <option value="administrador">Administrador</option>
+            </select>
+          </label>
+          <label>
+            Senha
+            <span class="password-control">
+              <input id="register-senha" type="password" name="senha" autocomplete="new-password" placeholder="Crie uma senha forte" aria-describedby="senha-requisitos">
+              <button type="button" class="password-toggle" data-action="toggle-password" aria-controls="register-senha" aria-pressed="false" aria-label="Mostrar senha">
+                <svg class="icon-eye" viewBox="0 0 24 24" aria-hidden="true"><path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7S2 12 2 12z"/><circle cx="12" cy="12" r="3"/></svg>
+                <svg class="icon-eye-off" viewBox="0 0 24 24" aria-hidden="true" hidden><path d="M3 3l18 18"/><path d="M10.6 10.6a3 3 0 0 0 4.2 4.2"/><path d="M9.9 5.2A10.8 10.8 0 0 1 12 5c6.5 0 10 7 10 7a18.4 18.4 0 0 1-3.2 4.4"/><path d="M6.1 6.1C3.8 7.8 2 12 2 12s3.5 7 10 7a10.7 10.7 0 0 0 4.1-.8"/></svg>
+              </button>
+            </span>
+          </label>
+          <ul id="senha-requisitos" class="password-rules">
+            <li data-rule="tamanho">Mínimo de 8 caracteres</li>
+            <li data-rule="maiuscula">Uma letra maiúscula</li>
+            <li data-rule="numero">Um número</li>
+            <li data-rule="especial">Um caractere especial</li>
+          </ul>
+          <label>
+            Confirmar senha
+            <span class="password-control">
+              <input id="register-confirmar" type="password" name="confirmar" autocomplete="new-password" placeholder="Repita a senha" aria-describedby="senha-match">
+              <button type="button" class="password-toggle" data-action="toggle-password" aria-controls="register-confirmar" aria-pressed="false" aria-label="Mostrar senha">
+                <svg class="icon-eye" viewBox="0 0 24 24" aria-hidden="true"><path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7S2 12 2 12z"/><circle cx="12" cy="12" r="3"/></svg>
+                <svg class="icon-eye-off" viewBox="0 0 24 24" aria-hidden="true" hidden><path d="M3 3l18 18"/><path d="M10.6 10.6a3 3 0 0 0 4.2 4.2"/><path d="M9.9 5.2A10.8 10.8 0 0 1 12 5c6.5 0 10 7 10 7a18.4 18.4 0 0 1-3.2 4.4"/><path d="M6.1 6.1C3.8 7.8 2 12 2 12s3.5 7 10 7a10.7 10.7 0 0 0 4.1-.8"/></svg>
+              </button>
+            </span>
+          </label>
+          <p id="senha-match" class="password-match" aria-live="polite" hidden></p>
+          <button type="submit" class="btn btn-primary btn-block">Cadastrar e entrar</button>
+        </form>
+
+        <p id="auth-feedback" class="form-feedback" role="alert" hidden></p>
+        <p class="auth-hint">Contas de teste: <strong>natalia@ehe.example</strong> / EHE-natalia (vendedora) e <strong>admin@ehe.example</strong> / EHE-admin (administrador). Conta nova exige senha forte. O cadastro grava só o hash neste navegador.</p>
+      </div>
+    </div>
+  </section>
+
+  <div id="screen-app" class="app-shell" hidden>
+    <aside class="sidebar">
+      <div class="brand">
+        <span class="logo" aria-hidden="true">CR</span>
+        <span>
+          <strong>CRMER</strong>
+          <small>EHE Indústria</small>
+        </span>
+      </div>
+      <p class="prototype-tag">Protótipo · dados simulados</p>
+
+      <nav class="side-nav" aria-label="Principal">
+        <button type="button" class="nav-btn" data-action="show-view" data-view="dashboard" aria-current="page">
+          <svg class="icon" viewBox="0 0 24 24" aria-hidden="true">
+            <rect x="3" y="3" width="8" height="8" rx="1.5"></rect>
+            <rect x="13" y="3" width="8" height="5" rx="1.5"></rect>
+            <rect x="13" y="10" width="8" height="11" rx="1.5"></rect>
+            <rect x="3" y="13" width="8" height="8" rx="1.5"></rect>
+          </svg>
+          Dashboard
+        </button>
+        <button type="button" class="nav-btn" data-action="show-view" data-view="products">
+          <svg class="icon" viewBox="0 0 24 24" aria-hidden="true">
+            <path d="M21 8l-9-5-9 5 9 5 9-5z"></path>
+            <path d="M3 8v8l9 5 9-5V8"></path>
+            <path d="M12 13v8"></path>
+          </svg>
+          Produtos
+        </button>
+        <button type="button" class="nav-btn" data-action="show-view" data-view="clients">
+          <svg class="icon" viewBox="0 0 24 24" aria-hidden="true">
+            <path d="M16 19v-1a4 4 0 0 0-4-4H7a4 4 0 0 0-4 4v1"></path>
+            <circle cx="9.5" cy="7" r="3"></circle>
+            <path d="M20 19v-1a3.5 3.5 0 0 0-2.5-3.3"></path>
+            <path d="M16.5 4.1a3 3 0 0 1 0 5.8"></path>
+          </svg>
+          Clientes
+        </button>
+      </nav>
+
+      <div class="sidebar-foot">
+        <div class="profile">
+          <span class="avatar" id="profile-initials" aria-hidden="true">NA</span>
+          <span class="profile-text">
+            <strong id="profile-name">Natália</strong>
+            <span id="profile-role">Vendedora · EHE Indústria</span>
+            <small id="session-email"></small>
+          </span>
+        </div>
+        <button type="button" class="btn-logout" data-action="logout">
+          <svg class="icon" viewBox="0 0 24 24" aria-hidden="true">
+            <path d="M9 6H6a2 2 0 0 0-2 2v8a2 2 0 0 0 2 2h3"></path>
+            <path d="M14 16l4-4-4-4"></path>
+            <path d="M18 12H9"></path>
+          </svg>
+          Logout
+        </button>
+      </div>
+    </aside>
+
+    <div class="workspace">
+      <header class="topbar">
+        <div class="topbar-title">
+          <p class="eyebrow">Time comercial</p>
+          <h1 id="page-title">Dashboard</h1>
+        </div>
+        <form id="form-search" class="quick-search" role="search">
+          <label class="sr-only" for="quick-search-input">Buscar cliente por razão social, nome fantasia, CNPJ, comprador ou telefone</label>
+          <div class="quick-search-field">
+            <svg class="icon" viewBox="0 0 24 24" aria-hidden="true">
+              <circle cx="11" cy="11" r="7"></circle>
+              <path d="M20 20l-3.5-3.5"></path>
+            </svg>
+            <input id="quick-search-input" type="search" placeholder="Buscar cliente, CNPJ, comprador ou telefone" autocomplete="off" role="combobox" aria-expanded="false" aria-controls="quick-search-list" aria-autocomplete="list">
+            <kbd aria-hidden="true">/</kbd>
+          </div>
+          <ul id="quick-search-list" class="quick-search-list" role="listbox" hidden></ul>
+        </form>
+        <p class="ref-date">Referência do protótipo: 22 de setembro de 2026</p>
+      </header>
+
+      <main id="conteudo">
+        <section id="view-dashboard" aria-label="Dashboard">
+          <div class="block">
+            <h2 id="performance-title">Minha Performance (Natália)</h2>
+            <div class="kpi-grid" id="kpi-grid"></div>
+            <div class="split">
+              <section class="panel">
+                <h3>Agenda de hoje</h3>
+                <ul id="agenda-list" class="link-list"></ul>
+              </section>
+              <section class="panel">
+                <h3>Aguardando retorno</h3>
+                <ul id="quote-list" class="link-list"></ul>
+              </section>
+            </div>
+          </div>
+
+          <div class="block">
+            <h2>Performance Geral EHE</h2>
+            <section class="panel">
+              <p class="eyebrow">Faturamento compartilhado da equipe comercial</p>
+              <p class="big-number" id="team-revenue"></p>
+              <p id="team-caption" class="kpi-hint"></p>
+              <h3 class="chart-title">Volume por linha de produto</h3>
+              <div id="line-chart" class="line-chart"></div>
+              <p id="carteira-fonte" class="footnote">Leitura simulada do Nomus Industrial (fase 1, consulta). A fase 2 devolverá follow-ups e orçamentos ao ERP.</p>
+            </section>
+          </div>
+        </section>
+
+        <section id="view-products" aria-label="Produtos" hidden>
+          <header class="section-header">
+            <p id="product-count" class="kpi-hint"></p>
+          </header>
+          <form id="form-product-search" class="product-search" role="search">
+            <label class="sr-only" for="product-search-input">Buscar produto por código ou descrição</label>
+            <input id="product-search-input" type="search" placeholder="Código ou descrição" autocomplete="off">
+          </form>
+          <div class="tabs" id="product-lines" role="tablist" aria-label="Linhas de produto">
+            <button type="button" class="tab" data-action="filter-products" data-line="todos" aria-selected="true">Todos</button>
+            <button type="button" class="tab" data-action="filter-products" data-line="Gás">Gás</button>
+            <button type="button" class="tab" data-action="filter-products" data-line="Saneamento">Saneamento</button>
+            <button type="button" class="tab" data-action="filter-products" data-line="Elétrica">Elétrica</button>
+            <button type="button" class="tab" data-action="filter-products" data-line="Fechamento">Fechamento</button>
+          </div>
+          <div id="product-list" class="product-list"></div>
+          <p id="produtos-fonte" class="footnote"></p>
+        </section>
+
+        <section id="view-clients" aria-label="Carteira de clientes" hidden>
+          <header class="section-header">
+            <p id="portfolio-count" class="kpi-hint"></p>
+            <button type="button" class="btn btn-accent" data-action="new-client">+ Novo Cliente</button>
+          </header>
+
+          <div class="tabs" role="tablist" aria-label="Rankings de clientes">
+            <button type="button" class="tab" id="tab-rank-contato" role="tab" data-action="show-ranking" data-ranking="contato" aria-selected="true" aria-controls="client-list">
+              Devem receber contato
+              <span class="tab-count" data-count="contato">0</span>
+            </button>
+            <button type="button" class="tab" id="tab-rank-resposta" role="tab" data-action="show-ranking" data-ranking="resposta" aria-selected="false" aria-controls="client-list">
+              Aguardando resposta
+              <span class="tab-count" data-count="resposta">0</span>
+            </button>
+            <button type="button" class="tab" id="tab-rank-sazonal" role="tab" data-action="show-ranking" data-ranking="sazonal" aria-selected="false" aria-controls="client-list">
+              Compram nesta época
+              <span class="tab-count" data-count="sazonal">0</span>
+            </button>
+            <button type="button" class="tab" id="tab-rank-inativos" role="tab" data-action="show-ranking" data-ranking="inativos" aria-selected="false" aria-controls="client-list">
+              Importantes inativos
+              <span class="tab-count" data-count="inativos">0</span>
+            </button>
+          </div>
+          <p id="ranking-help" class="ranking-help"></p>
+          <div id="client-list" role="tabpanel" aria-labelledby="tab-rank-contato"></div>
+        </section>
+      </main>
+    </div>
+
+    <div id="drawer-root" hidden>
+      <button type="button" class="drawer-backdrop" data-action="close-drawer" aria-label="Fechar ficha"></button>
+      <aside class="drawer" role="dialog" aria-modal="true" aria-labelledby="drawer-title">
+        <header class="drawer-header">
+          <div>
+            <p class="eyebrow" id="drawer-kicker"></p>
+            <h2 id="drawer-title" tabindex="-1"></h2>
+          </div>
+          <button type="button" class="icon-btn" data-action="close-drawer" aria-label="Fechar ficha">
+            <svg class="icon" viewBox="0 0 24 24" aria-hidden="true">
+              <path d="M6 6l12 12M18 6L6 18"></path>
+            </svg>
+          </button>
+        </header>
+        <div id="drawer-body" class="drawer-body"></div>
+      </aside>
+    </div>
+  </div>
+
+  <div id="toast" class="toast" role="status" aria-live="polite" hidden></div>
+  <script src="js/mock-data.js"></script>
+  <script src="js/auth.js"></script>
+  <script src="js/app.js"></script>
+</body>
+</html>

@@ -11,7 +11,7 @@ import unicodedata
 from datetime import date, datetime, timedelta
 from typing import Any, Literal
 
-from pydantic import BaseModel, ConfigDict, Field, field_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 DATA_REFERENCIA = date(2026, 9, 22)
 VENDEDOR_NATALIA = 3237
@@ -255,6 +255,19 @@ class PedidoNomus(ModeloNomus):
     idPessoaVendedor: int | None = None
     valorTotal: float = 0
     condicaoPagamentoTexto: str = ""
+    observacoes: str = ""
+
+    @model_validator(mode="before")
+    @classmethod
+    def _junta_observacao(cls, valor: Any) -> Any:
+        if not isinstance(valor, dict) or valor.get("observacoes"):
+            return valor
+        texto = valor.get("observacao") or valor.get("observacaoPedido") or ""
+        if not texto:
+            return valor
+        copia = dict(valor)
+        copia["observacoes"] = texto
+        return copia
     dataEmissao: datetime | None = None
     dataEntregaPadrao: datetime | None = None
     dataCriacao: datetime | None = None
@@ -282,7 +295,7 @@ class PedidoNomus(ModeloNomus):
     def _datas(cls, valor: Any) -> datetime | None:
         return _data_opcional(valor)
 
-    @field_validator("codigoPedido", "condicaoPagamentoTexto", mode="before")
+    @field_validator("codigoPedido", "condicaoPagamentoTexto", "observacoes", mode="before")
     @classmethod
     def _campos_texto(cls, valor: Any) -> str:
         return _texto(valor)
@@ -294,6 +307,7 @@ class PedidoCrmer(BaseModel):
     item: str
     quantidade: float
     valor: float
+    condicaoPagamento: str = ""
 
 
 class ClienteCrmer(BaseModel):
@@ -338,9 +352,22 @@ class ProdutoCrmer(BaseModel):
     descricao: str
     grupo: str
     linha: str = ""
+    familia: str = ""
     custo: float
     unidade: str
     saldoEstoque: float
+    vendavel: bool = True
+
+
+class PrecoHistorico(BaseModel):
+    idCliente: int
+    idProduto: int | None = None
+    nomeProduto: str
+    dataEmissao: str
+    quantidade: float
+    valorUnitario: float
+    condicaoPagamento: str = ""
+    observacoes: str = ""
 
 
 class Apuracao(BaseModel):
@@ -356,6 +383,8 @@ class CarteiraExport(BaseModel):
     vendedorId: int
     clients: list[ClienteCrmer]
     produtos: list[ProdutoCrmer]
+    produtosPorFamilia: dict[str, list[ProdutoCrmer]]
+    historico_precos: list[PrecoHistorico]
     apuracao: Apuracao
     avisos: list[str]
 
@@ -454,6 +483,14 @@ def _curva_abc(faturamentos: dict[int, float]) -> dict[int, str]:
     return curvas
 
 
+class _ItemPreco(BaseModel):
+    model_config = ConfigDict(extra="ignore")
+    idProduto: int | None = None
+    nomeProduto: str
+    quantidade: float
+    valorUnitario: float
+
+
 class _PedidoPronto(BaseModel):
     model_config = ConfigDict(extra="ignore")
     codigo: str
@@ -465,6 +502,9 @@ class _PedidoPronto(BaseModel):
     linhas: list[str]
     por_linha: dict[str, float]
     produto_ids: list[int]
+    condicao: str = ""
+    observacoes: str = ""
+    itens: list[_ItemPreco] = Field(default_factory=list)
 
 
 def montar_carteira(
@@ -528,6 +568,7 @@ def montar_carteira(
     ]
     fichas.sort(key=lambda ficha: _dobrar(ficha.razaoSocial))
     produtos_usados = _produtos_da_carteira(catalogo, produtos_citados)
+    historico = _historico(por_cliente)
     avisos.append(
         "Nenhum cliente foi para a fila de orçamento: /pedidos-venda não informa proposta em aberto."
     )
@@ -535,12 +576,14 @@ def montar_carteira(
         TODAY=referencia.isoformat(),
         fonte="nomus-fase-1-consulta",
         aviso=(
-            "Consulta da Fase 1. O protótipo estático continua simulado até este JSON "
-            "ser incorporado de propósito. O navegador não chama o Nomus."
+            "Consulta da Fase 1 gravada em arquivo local. O navegador não chama o Nomus. "
+            "Sem este arquivo, o protótipo usa a carteira simulada."
         ),
         vendedorId=vendedor_id,
         clients=fichas,
         produtos=produtos_usados,
+        produtosPorFamilia=_agrupar_familias(produtos_usados),
+        historico_precos=historico,
         apuracao=_apurar(por_cliente, referencia),
         avisos=avisos,
     )
@@ -586,6 +629,7 @@ def _normalizar_pedido(pedido: PedidoNomus, catalogo: dict[int, ProdutoNomus]) -
     linhas: list[str] = []
     por_linha: dict[str, float] = {}
     produto_ids: list[int] = []
+    itens: list[_ItemPreco] = []
     quantidade = 0.0
     soma_itens = 0.0
     for item in pedido.itensPedido:
@@ -600,6 +644,14 @@ def _normalizar_pedido(pedido: PedidoNomus, catalogo: dict[int, ProdutoNomus]) -
             descricao = f"Produto {item.idProduto}"
         if descricao and descricao not in descricoes:
             descricoes.append(descricao)
+        itens.append(
+            _ItemPreco(
+                idProduto=item.idProduto,
+                nomeProduto=descricao or "Pedido Nomus",
+                quantidade=round(item.quantidade, 3),
+                valorUnitario=round(item.valorUnitario, 2),
+            )
+        )
         linha = ""
         if produto:
             linha = linha_comercial(produto.nomeGrupoProduto, produto.nomeTipoProduto, produto.descricao)
@@ -630,6 +682,9 @@ def _normalizar_pedido(pedido: PedidoNomus, catalogo: dict[int, ProdutoNomus]) -
         linhas=linhas,
         por_linha=por_linha,
         produto_ids=produto_ids,
+        condicao=pedido.condicaoPagamentoTexto,
+        observacoes=pedido.observacoes,
+        itens=itens,
     )
 
 
@@ -693,6 +748,7 @@ def _ficha(
                 item=pedido.item,
                 quantidade=pedido.quantidade,
                 valor=pedido.valor,
+                condicaoPagamento=pedido.condicao,
             )
             for pedido in recentes
         ],
@@ -771,12 +827,12 @@ def _classificar(
 
 
 def _produtos_da_carteira(catalogo: dict[int, ProdutoNomus], citados: set[int]) -> list[ProdutoCrmer]:
-    """Só o que entrou em pedido da carteira. O catálogo inteiro fica na consulta, não no JSON."""
+    """Catálogo vendável das quatro linhas. Item de outro grupo só entra se a Natália pediu."""
     saida: list[ProdutoCrmer] = []
     for produto in catalogo.values():
-        if produto.id not in citados:
-            continue
         linha = linha_comercial(produto.nomeGrupoProduto, produto.nomeTipoProduto, produto.descricao)
+        if not linha and produto.id not in citados:
+            continue
         saldo = round(sum(setor.saldoEstoqueAtualEmpresa for setor in produto.empresasSetoresEstoque), 3)
         saida.append(
             ProdutoCrmer(
@@ -785,13 +841,44 @@ def _produtos_da_carteira(catalogo: dict[int, ProdutoNomus], citados: set[int]) 
                 descricao=produto.descricao,
                 grupo=produto.nomeGrupoProduto,
                 linha=linha,
+                familia=linha,
                 custo=round(produto.custoPadraoCompra, 2),
+                vendavel=bool(linha),
                 unidade=produto.siglaUnidadeMedida,
                 saldoEstoque=saldo,
             )
         )
     saida.sort(key=lambda item: (item.linha, item.codigo))
     return saida
+
+
+def _agrupar_familias(produtos: list[ProdutoCrmer]) -> dict[str, list[ProdutoCrmer]]:
+    grupos: dict[str, list[ProdutoCrmer]] = {linha: [] for linha in LINHAS}
+    for produto in produtos:
+        if produto.linha in grupos:
+            grupos[produto.linha].append(produto)
+    return grupos
+
+
+def _historico(por_cliente: dict[int, list[_PedidoPronto]]) -> list[PrecoHistorico]:
+    linhas: list[PrecoHistorico] = []
+    for cliente_id, pedidos in por_cliente.items():
+        for pedido in pedidos:
+            for item in pedido.itens:
+                linhas.append(
+                    PrecoHistorico(
+                        idCliente=cliente_id,
+                        idProduto=item.idProduto,
+                        nomeProduto=item.nomeProduto,
+                        dataEmissao=_iso(pedido.emissao),
+                        quantidade=item.quantidade,
+                        valorUnitario=item.valorUnitario,
+                        condicaoPagamento=pedido.condicao,
+                        observacoes=pedido.observacoes,
+                    )
+                )
+    linhas.sort(key=lambda row: (row.dataEmissao, row.idCliente, row.nomeProduto))
+    return linhas
 
 
 def _apurar(por_cliente: dict[int, list[_PedidoPronto]], referencia: date) -> Apuracao:

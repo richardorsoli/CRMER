@@ -163,6 +163,11 @@ class CarteiraTests(unittest.TestCase):
         self.assertTrue(any("orçamento" in aviso for aviso in carteira.avisos))
         self.assertTrue(any("comunitária" in aviso for aviso in carteira.avisos))
         self.assertEqual({produto.id for produto in carteira.produtos}, {1, 2})
+        self.assertEqual(set(carteira.produtosPorFamilia), {"Gás", "Saneamento", "Elétrica", "Fechamento"})
+        preco = next(row for row in carteira.historico_precos if row.idCliente == 1)
+        self.assertEqual(preco.valorUnitario, 100.0)
+        self.assertEqual(preco.quantidade, 2.0)
+        self.assertEqual(preco.nomeProduto, "Caixa de hidrômetro")
 
     def test_pedido_no_meio_do_ciclo_sai_da_agenda_de_hoje(self):
         carteira = montar_carteira(
@@ -223,7 +228,31 @@ class ClienteHttpTests(unittest.TestCase):
         self.assertEqual(sessao.chamadas[0]["params"], {"pagina": 1})
         self.assertEqual(sessao.chamadas[-1]["params"], {"pagina": 2})
         self.assertEqual(sessao.headers["Authorization"], "Basic tokensecreto")
-        self.assertTrue(esperas)
+        self.assertEqual(esperas, [45.0])
+
+    def test_429_encerra_na_quarta_tentativa(self):
+        sessao = _Sessao([_Resposta(429, []) for _ in range(4)])
+        esperas: list[float] = []
+        cliente = NomusClient(
+            base_url="https://ehe.example/rest",
+            auth_token="abc",
+            session=sessao,
+            espera_pagina=0,
+            dormir=esperas.append,
+        )
+        with self.assertRaises(NomusError):
+            cliente.listar_clientes()
+        self.assertEqual(esperas, [45.0, 45.0, 45.0])
+        self.assertEqual(len(sessao.chamadas), 4)
+
+    def test_intervalo_padrao_entre_paginas(self):
+        cliente = NomusClient(
+            base_url="https://ehe.example/rest",
+            auth_token="abc",
+            session=_Sessao([]),
+            dormir=lambda _: None,
+        )
+        self.assertEqual(cliente.espera_pagina, 1.2)
 
     def test_pagina_repetida_nao_entra_em_loop(self):
         sessao = _Sessao([_Resposta(200, [{"id": 7}]), _Resposta(200, [{"id": 7}])])

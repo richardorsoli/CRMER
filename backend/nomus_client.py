@@ -11,8 +11,11 @@ from typing import Any
 import requests
 
 RECURSOS = ("clientes", "produtos", "pedidos-venda")
-STATUS_PARA_REPETIR = frozenset({406, 429, 500, 502, 503, 504})
+STATUS_PARA_REPETIR = frozenset({406, 500, 502, 503, 504})
 PAGINAS_MAXIMAS = 500
+INTERVALO_PAGINA = 1.2
+ESPERA_429 = 45.0
+TENTATIVAS_429 = 4
 
 
 class NomusError(Exception):
@@ -26,8 +29,8 @@ class NomusAuthError(NomusError):
 class NomusClient:
     """Sessão única para /clientes, /produtos e /pedidos-venda.
 
-    A paginação para quando a página volta vazia. 406 e 429 (e falhas
-    transitórias de servidor) repetem com espera exponencial.
+    A paginação para quando a página volta vazia. Entre uma requisição e
+    outra há 1,2 s. O status 429 espera 45 s e tenta no máximo quatro vezes.
     """
 
     def __init__(
@@ -37,7 +40,7 @@ class NomusClient:
         session: requests.Session | None = None,
         timeout: float = 30,
         max_tentativas: int = 5,
-        espera_pagina: float = 0.4,
+        espera_pagina: float = INTERVALO_PAGINA,
         max_paginas: int = PAGINAS_MAXIMAS,
         dormir: Callable[[float], None] = time.sleep,
     ) -> None:
@@ -52,6 +55,7 @@ class NomusClient:
         self.espera_pagina = espera_pagina
         self.max_paginas = max_paginas
         self._dormir = dormir
+        self._houve_requisicao = False
         self.session = session or requests.Session()
         self.session.headers.update(
             {
@@ -90,15 +94,20 @@ class NomusClient:
                 return
             vistos.add(assinatura)
             yield from linhas
-            if self.espera_pagina:
-                self._dormir(self.espera_pagina)
         raise NomusError(
             f"A paginação de /{recurso} passou de {self.max_paginas} páginas. A consulta foi interrompida."
         )
 
+    def _intervalo(self) -> None:
+        if self._houve_requisicao and self.espera_pagina:
+            self._dormir(self.espera_pagina)
+        self._houve_requisicao = True
+
     def _get(self, recurso: str, params: dict[str, Any]) -> Any:
         url = f"{self.base_url}/{recurso}"
+        self._intervalo()
         ultimo_status = 0
+        tentativas_429 = 0
         for tentativa in range(self.max_tentativas + 1):
             try:
                 resposta = self.session.get(url, params=params, timeout=self.timeout)
@@ -111,6 +120,13 @@ class NomusClient:
             ultimo_status = resposta.status_code
             if resposta.status_code in {401, 403}:
                 raise NomusAuthError("O Nomus recusou a autenticação. Confira NOMUS_AUTH_TOKEN.")
+            if resposta.status_code == 429:
+                tentativas_429 += 1
+                ultimo_status = 429
+                if tentativas_429 >= TENTATIVAS_429:
+                    break
+                self._dormir(ESPERA_429)
+                continue
             if resposta.status_code in STATUS_PARA_REPETIR:
                 if tentativa >= self.max_tentativas:
                     break
@@ -129,6 +145,8 @@ class NomusClient:
             except ValueError as exc:
                 raise NomusError(f"A resposta de /{recurso} não é JSON.") from exc
 
+        if ultimo_status == 429:
+            raise NomusError(f"O Nomus respondeu 429 em /{recurso} depois de {TENTATIVAS_429} tentativas.")
         raise NomusError(
             f"O Nomus manteve o status {ultimo_status} em /{recurso} depois de {self.max_tentativas + 1} tentativas."
         )

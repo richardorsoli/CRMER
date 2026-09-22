@@ -24,7 +24,8 @@ else:
     from .transformer import DATA_REFERENCIA, VENDEDOR_NATALIA, montar_carteira
 
 RAIZ = Path(__file__).resolve().parent.parent
-SAIDA_PADRAO = Path(__file__).resolve().parent / "output" / "carteira_natalia.json"
+SAIDA_PADRAO = Path(__file__).resolve().parent / "output" / "dados_ehe.json"
+CARTEIRA_COMPAT = Path(__file__).resolve().parent / "output" / "carteira_natalia.json"
 
 
 def carregar_env(caminho: Path) -> None:
@@ -60,15 +61,16 @@ def executar(argumentos: argparse.Namespace) -> int:
         referencia=DATA_REFERENCIA,
     )
     destino = Path(argumentos.saida)
-    destino.parent.mkdir(parents=True, exist_ok=True)
-    destino.write_text(
-        json.dumps(carteira.model_dump(mode="json"), ensure_ascii=False, indent=2) + "\n",
-        encoding="utf-8",
-    )
+    payload = carteira.model_dump(mode="json")
+    payload["clientes"] = payload["clients"]
+    _gravar_json(destino, payload)
+    if destino.resolve() != CARTEIRA_COMPAT.resolve():
+        _gravar_json(CARTEIRA_COMPAT, payload)
     contagem: dict[str, int] = {}
     for ficha in carteira.clients:
         contagem[ficha.ranking] = contagem.get(ficha.ranking, 0) + 1
     print(f"Carteira de {len(carteira.clients)} cliente(s) em {destino}")
+    print(f"Produtos vendáveis: {len(carteira.produtos)} · preços: {len(carteira.historico_precos)}")
     print(
         "Filas: "
         + ", ".join(f"{fila}={contagem.get(fila, 0)}" for fila in ("contato", "resposta", "sazonal", "inativos"))
@@ -76,6 +78,11 @@ def executar(argumentos: argparse.Namespace) -> int:
     for aviso in carteira.avisos:
         print(f"- {aviso}")
     return 0
+
+
+def _gravar_json(destino: Path, payload: dict) -> None:
+    destino.parent.mkdir(parents=True, exist_ok=True)
+    destino.write_text(json.dumps(payload, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
 
 
 def main(argv: list[str] | None = None) -> int:
