@@ -26,6 +26,7 @@ STATUS_PARA_REPETIR = frozenset({406, 429, 500, 502, 503, 504})
 STATUS_ADAPTADOR = [429, 500, 502, 503, 504]
 PAGINAS_MAXIMAS = 500
 INTERVALO_PAGINA = 1.5
+INTERVALO_PRODUTO = 1.0
 TENTATIVAS_RESPOSTA = 5
 BASE_DELAY = 2
 PAGINAS_PEDIDOS_RECENTES = 10
@@ -71,6 +72,7 @@ class NomusClient:
         self.max_paginas = max_paginas
         self._dormir = dormir
         self._ultima_pagina_ok = False
+        self._houve_consulta_produto = False
         self.cache_produtos: dict[int, dict[str, Any]] = {}
         self._produtos_ausentes: set[int] = set()
         self.session = session or requests.Session()
@@ -148,11 +150,14 @@ class NomusClient:
     def obter_produto(self, produto_id: int) -> dict[str, Any] | None:
         """Devolve o produto do cache. Só consulta o Nomus na primeira vez."""
         ident = int(produto_id)
-        if ident in self.cache_produtos:
-            return self.cache_produtos[ident]
-        if ident in self._produtos_ausentes:
-            return None
-        payload = self._get(f"produtos/{ident}", {}, vazio_se=frozenset({404}))
+        if ident in self.cache_produtos or ident in self._produtos_ausentes:
+            print(f"[Cache] Produto {ident} já conhecido, ignorando requisição.", flush=True)
+            return self.cache_produtos.get(ident)
+        if self._houve_consulta_produto:
+            self._dormir(INTERVALO_PRODUTO)
+        print(f"[Nomus] Consultando detalhes do produto {ident}...", flush=True)
+        self._houve_consulta_produto = True
+        payload = self._get(f"produtos/{ident}", {}, vazio_se=frozenset({404}), pausar=False)
         if not isinstance(payload, dict):
             self._produtos_ausentes.add(ident)
             return None
@@ -231,9 +236,11 @@ class NomusClient:
         params: dict[str, Any],
         *,
         vazio_se: frozenset[int] | None = None,
+        pausar: bool = True,
     ) -> Any:
         url = f"{self.base_url}/{recurso}"
-        self._pausa_entre_paginas()
+        if pausar:
+            self._pausa_entre_paginas()
         ultimo_status = 0
         for tentativa in range(self.max_tentativas):
             try:

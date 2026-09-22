@@ -60,28 +60,27 @@ def executar(argumentos: argparse.Namespace) -> int:
         pedidos = _mesclar_pedidos(pedidos_novos, anteriores)
         print("\n--- Iniciando coleta de produtos ---", flush=True)
         produtos = cliente.garantir_produtos(_ids_produto(pedidos))
+        carteira = montar_carteira(
+            clientes,
+            produtos,
+            pedidos,
+            vendedor_id=argumentos.vendedor_id,
+            referencia=DATA_REFERENCIA,
+        )
+        payload = carteira.model_dump(mode="json")
+        payload["clientes"] = payload["clients"]
+        payload["nomusPedidos"] = pedidos
+        payload["nomusProdutos"] = produtos
+        payload["nomusClientes"] = clientes
+        _gravar_json(destino, payload)
+        print(
+            f"\n[Sucesso] Arquivo gerado em backend/output/dados_ehe.json com {len(clientes)} clientes.",
+            flush=True,
+        )
+        if destino.resolve() != CARTEIRA_COMPAT.resolve():
+            _gravar_json(CARTEIRA_COMPAT, payload)
     finally:
         cliente.fechar()
-
-    carteira = montar_carteira(
-        clientes,
-        produtos,
-        pedidos,
-        vendedor_id=argumentos.vendedor_id,
-        referencia=DATA_REFERENCIA,
-    )
-    payload = carteira.model_dump(mode="json")
-    payload["clientes"] = payload["clients"]
-    payload["nomusPedidos"] = pedidos
-    payload["nomusProdutos"] = produtos
-    payload["nomusClientes"] = clientes
-    _gravar_json(destino, payload)
-    print(
-        f"\n[Sucesso] Arquivo gerado em backend/output/dados_ehe.json com {len(clientes)} clientes.",
-        flush=True,
-    )
-    if destino.resolve() != CARTEIRA_COMPAT.resolve():
-        _gravar_json(CARTEIRA_COMPAT, payload)
     contagem: dict[str, int] = {}
     for ficha in carteira.clients:
         contagem[ficha.ranking] = contagem.get(ficha.ranking, 0) + 1
