@@ -570,7 +570,7 @@ def montar_carteira(
     produtos_usados = _produtos_da_carteira(catalogo, produtos_citados)
     historico = _historico(por_cliente)
     avisos.append(
-        "Nenhum cliente foi para a fila de orçamento: /pedidos-venda não informa proposta em aberto."
+        "Nenhum cliente foi para a fila de orçamento: /pedidos não informa proposta em aberto."
     )
     return CarteiraExport(
         TODAY=referencia.isoformat(),

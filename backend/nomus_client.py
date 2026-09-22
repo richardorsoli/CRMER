@@ -19,7 +19,9 @@ import requests
 from requests.adapters import HTTPAdapter
 from urllib3.util.retry import Retry
 
-RECURSOS = ("clientes", "produtos", "pedidos-venda")
+RECURSO_PEDIDOS = "pedidos"
+QUERY_PEDIDO_VENDA = "idTipoPedido=2"
+RECURSOS = ("clientes", "produtos", RECURSO_PEDIDOS)
 STATUS_PARA_REPETIR = frozenset({406, 429, 500, 502, 503, 504})
 STATUS_ADAPTADOR = [429, 500, 502, 503, 504]
 PAGINAS_MAXIMAS = 500
@@ -39,7 +41,7 @@ class NomusAuthError(NomusError):
 
 
 class NomusClient:
-    """Sessão única para /clientes, /produtos e /pedidos-venda.
+    """Sessão única para /clientes, /produtos e /pedidos.
 
     A paginação para quando a página volta vazia. Depois de cada página
     bem-sucedida, a próxima espera 1,5 s. O 429 que sobrevive ao adaptador
@@ -130,7 +132,7 @@ class NomusClient:
         return self.listar("produtos")
 
     def listar_pedidos_venda(self) -> list[dict[str, Any]]:
-        return self.listar("pedidos-venda")
+        return self.listar(RECURSO_PEDIDOS)
 
     def semear_produtos(self, produtos: Iterable[dict[str, Any]]) -> None:
         """Guarda produtos já conhecidos para não pedir o mesmo id de novo."""
@@ -166,19 +168,19 @@ class NomusClient:
         return list(self.cache_produtos.values())
 
     def listar_pedidos_recentes(self, conhecidos: set[str] | None = None) -> list[dict[str, Any]]:
-        """Lê no máximo 10 páginas de /pedidos-venda, da mais nova para a mais antiga.
+        """Lê no máximo 10 páginas de /pedidos?query=idTipoPedido=2, da mais nova para a mais antiga.
 
-        A primeira página do Nomus já traz os pedidos mais recentes. Cada página
-        é reordenada pela emissão e a busca para no primeiro pedido que já está
-        no histórico local. A pausa de 1,5 s fica no `_get`.
+        idTipoPedido=2 é o pedido de venda. A primeira página do Nomus já traz
+        os mais recentes. A busca para no primeiro pedido que já está no
+        histórico local. A pausa de 1,5 s fica no `_get`.
         """
         ja_vistos = set(conhecidos or ())
         coletados: list[dict[str, Any]] = []
         assinaturas: set[str] = set()
         for pagina in range(1, PAGINAS_PEDIDOS_RECENTES + 1):
-            _anunciar_pagina("pedidos-venda", pagina)
-            payload = self._get("pedidos-venda", {"pagina": pagina})
-            linhas = _como_lista(payload, "pedidos-venda", pagina)
+            _anunciar_pagina(RECURSO_PEDIDOS, pagina)
+            payload = self._get(RECURSO_PEDIDOS, {"query": QUERY_PEDIDO_VENDA, "pagina": pagina})
+            linhas = _como_lista(payload, RECURSO_PEDIDOS, pagina)
             if not linhas:
                 break
             assinatura = _assinatura(linhas[0])

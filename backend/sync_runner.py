@@ -52,7 +52,7 @@ def executar(argumentos: argparse.Namespace) -> int:
     try:
         cliente.semear_produtos(_produtos_do_historico(historico))
         clientes, modo_clientes, novos_clientes = reunir_clientes(cliente, historico, argumentos.full)
-        print("\n--- Iniciando coleta de pedidos recentes ---", flush=True)
+        print("\n--- Iniciando coleta de pedidos recentes (/pedidos) ---", flush=True)
         pedidos_novos = cliente.listar_pedidos_recentes(conhecidos)
         anteriores = historico.get("nomusPedidos")
         if not isinstance(anteriores, list):

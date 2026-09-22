@@ -4,10 +4,21 @@ from __future__ import annotations
 
 import unittest
 from datetime import date
+from unittest.mock import patch
 
 import requests
+from urllib3.util.retry import RequestHistory
 
-from backend.nomus_client import NomusAuthError, NomusClient, NomusError
+from backend.nomus_client import (
+    BASE_DELAY,
+    INTERVALO_PAGINA,
+    STATUS_ADAPTADOR,
+    TENTATIVAS_RESPOSTA,
+    NomusAuthError,
+    NomusClient,
+    NomusError,
+)
+from backend.sync_runner import clientes_em_cache, construir_parser, reunir_clientes
 from backend.transformer import (
     montar_carteira,
     parse_nomus_date,
@@ -207,10 +218,10 @@ class CarteiraTests(unittest.TestCase):
 
 
 class ClienteHttpTests(unittest.TestCase):
-    def test_pagina_ate_lista_vazia_e_respeita_429(self):
+    def test_pagina_ate_lista_vazia_e_respeita_retry_after(self):
         sessao = _Sessao(
             [
-                _Resposta(429, [], headers={"Retry-After": "0"}),
+                _Resposta(429, [], headers={"Retry-After": "11"}),
                 _Resposta(200, [{"id": 1}, {"id": 2}]),
                 _Resposta(200, []),
             ]
@@ -228,10 +239,10 @@ class ClienteHttpTests(unittest.TestCase):
         self.assertEqual(sessao.chamadas[0]["params"], {"pagina": 1})
         self.assertEqual(sessao.chamadas[-1]["params"], {"pagina": 2})
         self.assertEqual(sessao.headers["Authorization"], "Basic tokensecreto")
-        self.assertEqual(esperas, [45.0])
+        self.assertEqual(esperas, [11.0])
 
-    def test_429_encerra_na_quarta_tentativa(self):
-        sessao = _Sessao([_Resposta(429, []) for _ in range(4)])
+    def test_429_sem_cabecalho_usa_backoff_com_jitter(self):
+        sessao = _Sessao([_Resposta(429, []), _Resposta(200, [{"id": 3}]), _Resposta(200, [])])
         esperas: list[float] = []
         cliente = NomusClient(
             base_url="https://ehe.example/rest",
@@ -240,10 +251,56 @@ class ClienteHttpTests(unittest.TestCase):
             espera_pagina=0,
             dormir=esperas.append,
         )
-        with self.assertRaises(NomusError):
-            cliente.listar_clientes()
-        self.assertEqual(esperas, [45.0, 45.0, 45.0])
-        self.assertEqual(len(sessao.chamadas), 4)
+        with patch("backend.nomus_client.random.uniform", return_value=0.7) as jitter:
+            linhas = cliente.listar_clientes()
+        self.assertEqual([item["id"] for item in linhas], [3])
+        self.assertEqual(esperas, [BASE_DELAY * (2**0) + 0.7])
+        self.assertEqual(jitter.call_args.args, (0.5, 1.5))
+
+    def test_429_encerra_na_quinta_tentativa(self):
+        sessao = _Sessao([_Resposta(429, []) for _ in range(TENTATIVAS_RESPOSTA)])
+        esperas: list[float] = []
+        cliente = NomusClient(
+            base_url="https://ehe.example/rest",
+            auth_token="abc",
+            session=sessao,
+            espera_pagina=0,
+            dormir=esperas.append,
+        )
+        with patch("backend.nomus_client.random.uniform", return_value=1.0):
+            with self.assertRaises(NomusError) as captura:
+                cliente.listar_clientes()
+        self.assertIn("5 tentativas", str(captura.exception))
+        self.assertEqual(esperas, [BASE_DELAY * (2**tentativa) + 1.0 for tentativa in range(TENTATIVAS_RESPOSTA - 1)])
+        self.assertEqual(len(sessao.chamadas), TENTATIVAS_RESPOSTA)
+
+    def test_adaptador_urllib3_repete_429_com_backoff(self):
+        sessao = requests.Session()
+        cliente = NomusClient(
+            base_url="https://ehe.example/rest",
+            auth_token="abc",
+            session=sessao,
+            dormir=lambda _: None,
+        )
+        try:
+            politica = sessao.get_adapter("https://ehe.example/rest/clientes").max_retries
+        finally:
+            cliente.fechar()
+        self.assertEqual(politica.total, TENTATIVAS_RESPOSTA)
+        self.assertEqual(politica.backoff_factor, BASE_DELAY)
+        self.assertEqual(politica.raise_on_status, False)
+        self.assertEqual(politica.respect_retry_after_header, True)
+        self.assertTrue(all(codigo in politica.status_forcelist for codigo in STATUS_ADAPTADOR))
+        self.assertEqual(cliente.retentativa.total, 5)
+        self.assertEqual(cliente.retentativa.backoff_factor, 2)
+        historico: tuple = ()
+        pausas: list[float] = []
+        politica = cliente.retentativa
+        for _ in range(5):
+            historico = historico + (RequestHistory("GET", "https://ehe.example/rest/clientes", None, 429, None),)
+            politica = politica.new(history=historico)
+            pausas.append(politica.get_backoff_time())
+        self.assertEqual(pausas, [2.0, 4.0, 8.0, 16.0, 32.0])
 
     def test_intervalo_padrao_entre_paginas(self):
         cliente = NomusClient(
@@ -252,7 +309,26 @@ class ClienteHttpTests(unittest.TestCase):
             session=_Sessao([]),
             dormir=lambda _: None,
         )
-        self.assertEqual(cliente.espera_pagina, 1.2)
+        self.assertEqual(cliente.espera_pagina, INTERVALO_PAGINA)
+        self.assertEqual(INTERVALO_PAGINA, 1.5)
+
+    def test_pausa_de_1_5s_entre_paginas_bem_sucedidas(self):
+        sessao = _Sessao(
+            [
+                _Resposta(200, [{"id": 1}]),
+                _Resposta(200, [{"id": 2}]),
+                _Resposta(200, []),
+            ]
+        )
+        esperas: list[float] = []
+        cliente = NomusClient(
+            base_url="https://ehe.example/rest",
+            auth_token="abc",
+            session=sessao,
+            dormir=esperas.append,
+        )
+        self.assertEqual([item["id"] for item in cliente.listar_produtos()], [1, 2])
+        self.assertEqual(esperas, [1.5, 1.5])
 
     def test_pagina_repetida_nao_entra_em_loop(self):
         sessao = _Sessao([_Resposta(200, [{"id": 7}]), _Resposta(200, [{"id": 7}])])
@@ -276,6 +352,28 @@ class ClienteHttpTests(unittest.TestCase):
         with self.assertRaises(NomusAuthError) as captura:
             cliente.listar_pedidos_venda()
         self.assertNotIn("tokensecreto", str(captura.exception))
+        self.assertTrue(sessao.chamadas[0]["url"].endswith("/pedidos"))
+        self.assertNotIn("pedidos-venda", sessao.chamadas[0]["url"])
+
+    def test_pedidos_recentes_filtram_pedido_de_venda(self):
+        sessao = _Sessao(
+            [
+                _Resposta(200, [{"id": 30, "codigoPedido": "PD 00030", "dataEmissao": "22/09/2026"}]),
+                _Resposta(200, []),
+            ]
+        )
+        cliente = NomusClient(
+            base_url="https://ehe.example/rest",
+            auth_token="abc",
+            session=sessao,
+            espera_pagina=0,
+            dormir=lambda _: None,
+        )
+        linhas = cliente.listar_pedidos_recentes(set())
+        self.assertEqual([item["id"] for item in linhas], [30])
+        self.assertTrue(all(chamada["url"].endswith("/pedidos") for chamada in sessao.chamadas))
+        self.assertEqual(sessao.chamadas[0]["params"], {"query": "idTipoPedido=2", "pagina": 1})
+        self.assertEqual(sessao.chamadas[1]["params"], {"query": "idTipoPedido=2", "pagina": 2})
 
     def test_formato_inesperado_explica_a_pagina(self):
         sessao = _Sessao([_Resposta(200, {"content": [{"id": 1}]})])
@@ -291,6 +389,73 @@ class ClienteHttpTests(unittest.TestCase):
     def test_token_ausente(self):
         with self.assertRaises(NomusAuthError):
             NomusClient(base_url="https://ehe.example/rest", auth_token="")
+
+    def test_clientes_recentes_param_no_id_conhecido(self):
+        sessao = _Sessao(
+            [
+                _Resposta(200, [{"id": 4, "razaoSocial": "Antiga"}, {"id": 9, "razaoSocial": "Nova"}, {"id": 8}]),
+                _Resposta(200, [{"id": 1}]),
+            ]
+        )
+        cliente = NomusClient(
+            base_url="https://ehe.example/rest",
+            auth_token="abc",
+            session=sessao,
+            espera_pagina=0,
+            dormir=lambda _: None,
+        )
+        novos = cliente.listar_clientes_recentes({"id:4"})
+        self.assertEqual([item["id"] for item in novos], [9, 8])
+        self.assertEqual(len(sessao.chamadas), 1)
+
+
+class _FonteClientes:
+    def __init__(self, recentes=None, completos=None):
+        self.recentes = recentes if recentes is not None else [{"id": 9, "razaoSocial": "Nova", "cnpj": "1"}]
+        self.completos = completos if completos is not None else [{"id": 1, "razaoSocial": "Todas", "cnpj": "2"}]
+        self.chamou_completa = 0
+        self.chamou_recente = 0
+        self.conhecidos = None
+
+    def listar_clientes(self):
+        self.chamou_completa += 1
+        return list(self.completos)
+
+    def listar_clientes_recentes(self, conhecidos):
+        self.chamou_recente += 1
+        self.conhecidos = set(conhecidos)
+        return list(self.recentes)
+
+
+class CacheClientesTests(unittest.TestCase):
+    def test_ficha_do_crmer_nao_conta_como_cache_nomus(self):
+        payload = {"clientes": [{"id": "nomus-1", "razaoSocial": "Pacaembu", "ranking": "contato"}]}
+        self.assertEqual(clientes_em_cache(payload), [])
+
+    def test_arquivo_local_evita_varredura_completa(self):
+        historico = {
+            "nomusClientes": [
+                {"id": 4, "razaoSocial": "Horizonte", "cnpj": "11222333000181"},
+            ]
+        }
+        fonte = _FonteClientes()
+        clientes, modo, novos = reunir_clientes(fonte, historico, completo=False)
+        self.assertEqual(modo, "incremental")
+        self.assertEqual(fonte.chamou_completa, 0)
+        self.assertEqual(fonte.chamou_recente, 1)
+        self.assertEqual(fonte.conhecidos, {"id:4"})
+        self.assertEqual([item["id"] for item in novos], [9])
+        self.assertEqual([item["id"] for item in clientes], [9, 4])
+
+    def test_full_forca_varredura_desde_o_inicio(self):
+        historico = {"nomusClientes": [{"id": 4, "razaoSocial": "Horizonte", "cnpj": "1"}]}
+        fonte = _FonteClientes()
+        clientes, modo, novos = reunir_clientes(fonte, historico, completo=True)
+        self.assertEqual(modo, "completa")
+        self.assertEqual(fonte.chamou_completa, 1)
+        self.assertEqual(fonte.chamou_recente, 0)
+        self.assertEqual(clientes, novos)
+        self.assertTrue(construir_parser().parse_args(["--full"]).full)
 
 
 if __name__ == "__main__":
