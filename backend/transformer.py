@@ -279,6 +279,14 @@ class PedidoNomus(ModeloNomus):
     dataEntregaPadrao: datetime | None = None
     dataCriacao: datetime | None = None
     itensPedido: list[ItemPedidoNomus] = Field(default_factory=list)
+    nfes: list[NfeVinculoNomus] = Field(default_factory=list)
+
+    @field_validator("nfes", mode="before")
+    @classmethod
+    def _nfes(cls, valor: Any) -> list:
+        if not isinstance(valor, list):
+            return []
+        return [item for item in valor if isinstance(item, dict)]
 
     @field_validator("id", mode="before")
     @classmethod
@@ -306,6 +314,21 @@ class PedidoNomus(ModeloNomus):
     @classmethod
     def _campos_texto(cls, valor: Any) -> str:
         return _texto(valor)
+
+
+class NfeVinculoNomus(ModeloNomus):
+    """Nota já citada no pedido. O XML continua em /nfes."""
+
+    chave: str = ""
+    numero: str = ""
+
+    @field_validator("chave", "numero", mode="before")
+    @classmethod
+    def _campos_texto(cls, valor: Any) -> str:
+        return _texto(valor)
+
+
+PedidoNomus.model_rebuild()
 
 
 class NfeInfoCrmer(BaseModel):
@@ -539,6 +562,8 @@ class _PedidoPronto(BaseModel):
     produto_ids: list[int]
     condicao: str = ""
     observacoes: str = ""
+    chaves_nfe: list[str] = Field(default_factory=list)
+    numeros_nfe: list[str] = Field(default_factory=list)
     itens: list[_ItemPreco] = Field(default_factory=list)
 
 
@@ -599,14 +624,9 @@ def _ler_xml_nfe(xml_string: str | None) -> tuple[dict[str, str], list[str]]:
 
     municipio = _texto_nodo(_encontrar(raiz, ".//nfe:dest/nfe:enderDest/nfe:xMun"))
     uf = _texto_nodo(_encontrar(raiz, ".//nfe:dest/nfe:enderDest/nfe:UF"))
-    # infCpl traz o endereço de entrega da obra; a cidade do destinatário cobre a nota sem esse texto.
+    # infCpl mistura texto fiscal e o endereço real da obra. A cidade do destinatário cobre a nota sem entrega.
     complemento = _texto_nodo(_encontrar(raiz, ".//nfe:infAdic/nfe:infCpl"))
-    if complemento:
-        destino = complemento
-    elif municipio and uf:
-        destino = f"{municipio}/{uf}"
-    else:
-        destino = municipio or uf
+    destino = _destino_obra(complemento, municipio, uf)
 
     chave = ""
     inf = _encontrar(raiz, ".//nfe:infNFe")
@@ -630,14 +650,64 @@ def _ler_xml_nfe(xml_string: str | None) -> tuple[dict[str, str], list[str]]:
     )
 
 
+_RE_ENTREGA_OBRA = re.compile(r"obra\s*:", re.IGNORECASE)
+_RE_ENTREGA_ENDERECO = re.compile(r"endere[cç]o de entrega\s*:", re.IGNORECASE)
+_RE_ENTREGA_CURTO = re.compile(r"endere[cç]o\s*:", re.IGNORECASE)
+
+
+def _destino_obra(complemento: str, municipio: str, uf: str) -> str:
+    texto = re.sub(r"<br\s*/?>", " ", complemento or "", flags=re.IGNORECASE)
+    texto = " ".join(texto.replace("\xa0", " ").split())
+    trecho = _trecho_entrega(texto)
+    if trecho:
+        return trecho
+    if municipio and uf:
+        return f"{municipio}/{uf}"
+    return municipio or uf
+
+
+def _trecho_entrega(texto: str) -> str:
+    """Tira PIS/COFINS e o separador de mais e fica com obra ou endereço de entrega."""
+    if not texto:
+        return ""
+    if not _texto_fiscal(texto):
+        return texto
+    partes = [parte.strip(" +") for parte in re.split(r"\|+", texto)]
+    partes = [parte for parte in partes if parte and not re.fullmatch(r"\++", parte)]
+    candidato = ""
+    for parte in partes:
+        if _marcador_entrega(parte):
+            candidato = parte
+            break
+    if not candidato and _marcador_entrega(texto):
+        candidato = texto
+    if not candidato:
+        return ""
+    marcador = _marcador_entrega(candidato)
+    if marcador is None:
+        return ""
+    return candidato[marcador.start():].strip(" -")
+
+
+def _texto_fiscal(texto: str) -> bool:
+    baixo = _dobrar(texto)
+    return "pis " in baixo or "cofins" in baixo or "ibpt" in baixo or "++++" in texto or "|" in texto
+
+
+def _marcador_entrega(texto: str) -> re.Match[str] | None:
+    return _RE_ENTREGA_OBRA.search(texto) or _RE_ENTREGA_ENDERECO.search(texto) or _RE_ENTREGA_CURTO.search(texto)
+
+
 def _chaves_pedido_nfe(numero: str) -> list[str]:
     chaves: list[str] = []
     limpo = re.sub(r"\s+", "", numero or "").casefold()
     if limpo:
         chaves.append(f"txt:{limpo}")
-    digitos = re.sub(r"\D", "", numero or "").lstrip("0")
-    if digitos:
-        chaves.append(f"num:{digitos}")
+    # Número com letra (TRAY: 4769) não vira chave numérica: cairia em outro PD.
+    if numero and not re.search(r"[A-Za-z]", numero):
+        digitos = re.sub(r"\D", "", numero).lstrip("0")
+        if digitos:
+            chaves.append(f"num:{digitos}")
     return chaves
 
 
@@ -661,17 +731,41 @@ def _indexar_nfes(brutos: list[dict[str, Any]] | None) -> dict[str, dict[str, st
             numeros.insert(0, dados["pedido_numero"])
         if not any(dados[campo] for campo in ("numero_nf", "transportadora", "destino_obra", "chave_nfe")):
             continue
+        if dados["chave_nfe"]:
+            indice.setdefault(f"chave:{dados['chave_nfe']}", dados)
+        if dados["numero_nf"]:
+            token = dados["numero_nf"].lstrip("0")
+            if token:
+                indice.setdefault(f"nf:{token}", dados)
         for numero in numeros:
             for chave in _chaves_pedido_nfe(numero):
                 indice.setdefault(chave, dados)
+            if numero and not re.search(r"[A-Za-z]", numero):
+                token = re.sub(r"\D", "", numero).lstrip("0")
+                if len(token) >= 5:
+                    indice.setdefault(f"xped:{token}", dados)
     return indice
 
 
-def _nfe_do_pedido(codigo: str, indice: dict[str, dict[str, str]]) -> dict[str, str] | None:
-    if not indice or not codigo:
+def _nfe_do_pedido(pedido: _PedidoPronto, indice: dict[str, dict[str, str]]) -> dict[str, str] | None:
+    """A chave da nota no pedido vem primeiro. xPed liga o pedido de compra do cliente."""
+    if not indice:
         return None
-    for chave in _chaves_pedido_nfe(codigo):
+    for chave in pedido.chaves_nfe:
+        achado = indice.get(f"chave:{chave}")
+        if achado:
+            return achado
+    for numero in pedido.numeros_nfe:
+        token = str(numero).lstrip("0")
+        achado = indice.get(f"nf:{token}") if token else None
+        if achado:
+            return achado
+    for chave in _chaves_pedido_nfe(pedido.codigo):
         achado = indice.get(chave)
+        if achado:
+            return achado
+    for token in re.findall(r"\d{5,}", pedido.observacoes or ""):
+        achado = indice.get(f"xped:{token.lstrip('0')}")
         if achado:
             return achado
     return None
@@ -1011,6 +1105,8 @@ def _normalizar_pedido(pedido: PedidoNomus, catalogo: dict[int, ProdutoNomus]) -
         produto_ids=produto_ids,
         condicao=pedido.condicaoPagamentoTexto,
         observacoes=pedido.observacoes,
+        chaves_nfe=[nota.chave for nota in pedido.nfes if nota.chave],
+        numeros_nfe=[nota.numero for nota in pedido.nfes if nota.numero],
         itens=itens,
     )
 
@@ -1060,7 +1156,7 @@ def _ficha(
     indice = nfes_por_pedido or {}
     pedidos_ficha: list[PedidoCrmer] = []
     for pedido in recentes:
-        info = _nfe_do_pedido(pedido.codigo, indice)
+        info = _nfe_do_pedido(pedido, indice)
         pedidos_ficha.append(
             PedidoCrmer(
                 codigo=pedido.codigo,

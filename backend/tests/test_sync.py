@@ -242,6 +242,14 @@ class NfeProcessoTests(unittest.TestCase):
         self.assertEqual(dados["transportadora"], "Transportadora Obra Ltda")
         self.assertEqual(dados["destino_obra"], "Entrega na obra: Rua das Flores, 100 - Campinas/SP")
         self.assertEqual(dados["chave_nfe"], "35260911222333000181550010000012341000012345")
+        fiscal = _XML_NFE.replace(
+            "<infCpl>Entrega na obra: Rua das Flores, 100 - Campinas/SP</infCpl>",
+            "<infCpl>PIS AL 1.65% VALOR R$45,56|++++++++++++++++++++++++++++++++|OBRA: RESIDENCIAL ARES - ENDERECO: AV MARIO ZAMPIERI, 1592 - ARARAQUARA - SP</infCpl>",
+        ).replace("<xNome>Transportadora Obra Ltda</xNome>", "<xNome>MOVVI LOGISTICA LTDA</xNome>")
+        obra = extrair_dados_xml_nfe(fiscal)
+        self.assertEqual(obra["transportadora"], "MOVVI LOGISTICA LTDA")
+        self.assertTrue(obra["destino_obra"].startswith("OBRA: RESIDENCIAL ARES"))
+        self.assertNotIn("PIS", obra["destino_obra"])
 
         sem_complemento = _XML_NFE.replace(
             "<infAdic><infCpl>Entrega na obra: Rua das Flores, 100 - Campinas/SP</infCpl></infAdic>",
@@ -268,6 +276,24 @@ class NfeProcessoTests(unittest.TestCase):
         self.assertEqual(vinculado.transportadora, "Transportadora Obra Ltda")
         self.assertIn("Rua das Flores", vinculado.destino_obra)
         self.assertIsNone(por_codigo["PD 00011"].nfe_info)
+
+    def test_nfe_entra_no_pedido_pela_chave_quando_xped_e_do_cliente(self):
+        xml = _XML_NFE.replace("<xPed>PD 00010</xPed>", "<xPed>4509572623</xPed>")
+        pedido = _pedido(10, 1, "01/09/2026", "1000,00", 1)
+        pedido["codigoPedido"] = "PD 06456"
+        pedido["nfes"] = [{"chave": "35260911222333000181550010000012341000012345", "numero": "1234"}]
+        pedido["observacoes"] = "OBRA RESIDENCIAL ARES\nPedido de Compras MRV: 4509572623"
+        carteira = montar_carteira(
+            [_cliente(1, "Construtora Pacaembu")],
+            [_produto(1, "Saneamento", "Caixa de hidrômetro")],
+            [pedido],
+            nfes_raw=[{"id": 9, "xml": xml, "chave": "35260911222333000181550010000012341000012345"}],
+        )
+        info = carteira.clients[0].pedidos[0].nfe_info
+        self.assertIsNotNone(info)
+        self.assertEqual(info.numero_nf, "1234")
+        self.assertEqual(info.transportadora, "Transportadora Obra Ltda")
+        self.assertIn("Rua das Flores", info.destino_obra)
 
     def test_processo_de_venda_vai_para_o_cliente_pela_pessoa(self):
         carteira = montar_carteira(
@@ -537,6 +563,7 @@ class ClienteHttpTests(unittest.TestCase):
         linhas = cliente.listar_processos(paginas=3)
         self.assertEqual([item["id"] for item in linhas], [1, 3])
         self.assertTrue(sessao.chamadas[0]["url"].endswith("/processos"))
+        self.assertEqual(sessao.chamadas[0]["timeout"], 60)
         self.assertEqual(sessao.chamadas[0]["params"], {"pagina": 1})
         self.assertEqual(sessao.chamadas[1]["params"], {"pagina": 2})
         self.assertEqual(esperas, [1.5, 1.5])

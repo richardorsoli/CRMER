@@ -26,6 +26,7 @@ STATUS_PARA_REPETIR = frozenset({406, 429, 500, 502, 503, 504})
 STATUS_ADAPTADOR = [429, 500, 502, 503, 504]
 PAGINAS_MAXIMAS = 500
 INTERVALO_PAGINA = 1.5
+TIMEOUT_PROCESSO = 60
 INTERVALO_PRODUTO = 1.0
 TENTATIVAS_RESPOSTA = 5
 BASE_DELAY = 2
@@ -203,21 +204,25 @@ class NomusClient:
         return coletados
 
     def listar_processos(self, paginas: int = 3) -> list[dict[str, Any]]:
-        """Lê /processos nas páginas pedidas e fica só com a equipe de Vendas."""
-        return [item for item in self._listar_paginas("processos", paginas) if _equipe_e_vendas(item)]
+        """Lê /processos com timeout de 60 s e a pausa de 1,5 s entre páginas."""
+        return [
+            item
+            for item in self._listar_paginas("processos", paginas, timeout=TIMEOUT_PROCESSO)
+            if _equipe_e_vendas(item)
+        ]
 
     def listar_nfes(self, paginas: int = 3) -> list[dict[str, Any]]:
         """Lê /nfes nas páginas pedidas, com o XML de cada nota."""
         return self._listar_paginas("nfes", paginas)
 
-    def _listar_paginas(self, recurso: str, paginas: int) -> list[dict[str, Any]]:
+    def _listar_paginas(self, recurso: str, paginas: int, timeout: float | None = None) -> list[dict[str, Any]]:
         """Paginação curta. A pausa de 1,5 s entre páginas bem-sucedidas fica no `_get`."""
         coletados: list[dict[str, Any]] = []
         assinaturas: set[str] = set()
         limite = max(0, int(paginas))
         for pagina in range(1, limite + 1):
             _anunciar_pagina(recurso, pagina)
-            payload = self._get(recurso, {"pagina": pagina})
+            payload = self._get(recurso, {"pagina": pagina}, timeout=timeout)
             linhas = _como_lista(payload, recurso, pagina)
             if not linhas:
                 break
@@ -263,14 +268,16 @@ class NomusClient:
         *,
         vazio_se: frozenset[int] | None = None,
         pausar: bool = True,
+        timeout: float | None = None,
     ) -> Any:
         url = f"{self.base_url}/{recurso}"
+        prazo = self.timeout if timeout is None else timeout
         if pausar:
             self._pausa_entre_paginas()
         ultimo_status = 0
         for tentativa in range(self.max_tentativas):
             try:
-                resposta = self.session.get(url, params=params, timeout=self.timeout)
+                resposta = self.session.get(url, params=params, timeout=prazo)
             except requests.RequestException as exc:
                 ultimo_status = 0
                 if tentativa >= self.max_tentativas - 1:
