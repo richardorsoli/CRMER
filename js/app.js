@@ -28,7 +28,8 @@
         ...(order.nfe_info ? { nfe_info: { ...order.nfe_info } } : {})
       })),
       orcamentos: (client.orcamentos || []).map((quote) => ({ ...quote })),
-      processos: (client.processos || []).map((proc) => ({ ...proc }))
+      processos: (client.processos || []).map((proc) => ({ ...proc })),
+      contatos: (client.contatos || []).map((contato) => ({ ...contato }))
     };
   }
 
@@ -37,6 +38,8 @@
     ranking: "contato",
     session: null,
     drawerId: null,
+    drawerAba: "geral",
+    analisePeriodo: "12m",
     lastFocus: null,
     clients: mock.clients.map(cloneClient),
     products: mock.produtos || [],
@@ -491,6 +494,135 @@
     return `<span class="nfe-linha"><span class="badge badge-nfe">${escapeHtml(faixa)}</span>${entrega}</span>`;
   }
 
+  function dataNoPeriodo(iso, periodo) {
+    if (periodo === "tudo") return true;
+    if (!iso || !/^\d{4}-\d{2}/.test(iso)) return false;
+    const [ano, mes] = iso.slice(0, 7).split("-").map(Number);
+    const [refAno, refMes] = TODAY.slice(0, 7).split("-").map(Number);
+    if (periodo === "mes") return ano === refAno && mes === refMes;
+    if (periodo === "ano") return ano === refAno;
+    const meses = (refAno * 12 + refMes) - (ano * 12 + mes);
+    return meses >= 0 && meses < 12;
+  }
+
+  function perdasDoCliente(client) {
+    const nome = String(client.razaoSocial || "").trim().toLowerCase();
+    return (state.perdas || []).filter((item) => String(item.cliente || "").trim().toLowerCase() === nome);
+  }
+
+  function serieComercial(client, periodo) {
+    const negociacao = (client.orcamentos || []).filter((item) => dataNoPeriodo(item.data, periodo) && item.status !== "perdido");
+    const fechados = (client.pedidos || []).filter((item) => dataNoPeriodo(item.data, periodo));
+    const perdidos = perdasDoCliente(client).filter((item) => dataNoPeriodo(item.data || item.dataPerda || TODAY, periodo));
+    const orcamentosPerdidos = (client.orcamentos || []).filter((item) => item.status === "perdido" && dataNoPeriodo(item.data, periodo));
+    const perdas = perdidos.concat(orcamentosPerdidos.map((item) => ({
+      valor: item.valor,
+      categoria: item.categoria || "PREÇO",
+      motivo: item.motivo || "Não informado",
+      data: item.data
+    })));
+    return { negociacao, fechados, perdas };
+  }
+
+  function graficoCurva(serie) {
+    const meses = new Map();
+    const somar = (lista, campo) => {
+      lista.forEach((item) => {
+        const chave = String(item.data || "").slice(0, 7);
+        if (!/^\d{4}-\d{2}$/.test(chave)) return;
+        if (!meses.has(chave)) meses.set(chave, { orcado: 0, faturado: 0 });
+        meses.get(chave)[campo] += Number(item.valor) || 0;
+      });
+    };
+    somar(serie.negociacao, "orcado");
+    somar(serie.perdas, "orcado");
+    somar(serie.fechados, "orcado");
+    somar(serie.fechados, "faturado");
+    const chaves = [...meses.keys()].sort();
+    if (!chaves.length) return '<p class="empty">Sem movimento no período para desenhar a curva.</p>';
+    const largura = 640;
+    const altura = 220;
+    const pad = { t: 16, r: 12, b: 28, l: 8 };
+    const max = Math.max(1, ...chaves.flatMap((chave) => [meses.get(chave).orcado, meses.get(chave).faturado]));
+    const x = (i) => pad.l + (chaves.length === 1 ? (largura - pad.l - pad.r) / 2 : (i * (largura - pad.l - pad.r)) / (chaves.length - 1));
+    const y = (valor) => pad.t + (altura - pad.t - pad.b) * (1 - valor / max);
+    const linha = (campo) => chaves.map((chave, i) => `${x(i).toFixed(1)},${y(meses.get(chave)[campo]).toFixed(1)}`).join(" ");
+    const rotulos = chaves.map((chave, i) => `<text x="${x(i).toFixed(1)}" y="${altura - 8}" text-anchor="middle">${escapeHtml(chave.slice(5))}/${chave.slice(2, 4)}</text>`).join("");
+    return `<svg class="curva-svg" viewBox="0 0 ${largura} ${altura}" role="img" aria-label="Volume orçado e faturado mês a mês">
+      <polyline class="curva-orcado" points="${linha("orcado")}" fill="none"></polyline>
+      <polyline class="curva-faturado" points="${linha("faturado")}" fill="none"></polyline>
+      ${rotulos}
+    </svg>
+    <p class="curva-legenda"><span class="legenda-orcado">Orçado</span><span class="legenda-faturado">Faturado</span></p>`;
+  }
+
+  function graficoPerdas(perdas) {
+    if (!perdas.length) return '<p class="empty">Nenhuma perda registrada para este cliente no período.</p>';
+    const grupos = new Map();
+    perdas.forEach((item) => {
+      const categoria = String(item.categoria || "Outros");
+      const motivo = String(item.motivo || "Não informado");
+      const chave = `${categoria} · ${motivo}`;
+      grupos.set(chave, (grupos.get(chave) || 0) + 1);
+    });
+    const linhas = [...grupos.entries()].sort((a, b) => b[1] - a[1]);
+    const max = linhas[0][1];
+    return `<ul class="perda-barras">${linhas.map(([rotulo, qtd]) => {
+      const largura = Math.max(8, Math.round((qtd / max) * 100));
+      return `<li><span class="perda-rotulo">${escapeHtml(rotulo)}</span><span class="perda-trilha"><span class="perda-barra" style="width:${largura}%"></span></span><strong>${qtd}</strong></li>`;
+    }).join("")}</ul>`;
+  }
+
+  function painelAnaliseHtml(client) {
+    const periodo = state.analisePeriodo || "12m";
+    const serie = serieComercial(client, periodo);
+    const emitidos = serie.negociacao.length + serie.fechados.length + serie.perdas.length;
+    const conversao = emitidos ? Math.round((serie.fechados.length / emitidos) * 100) : 0;
+    const valorOrcado = serie.negociacao.concat(serie.fechados, serie.perdas).reduce((soma, item) => soma + (Number(item.valor) || 0), 0);
+    const valorFaturado = serie.fechados.reduce((soma, item) => soma + (Number(item.valor) || 0), 0);
+    const ticket = serie.fechados.length ? valorFaturado / serie.fechados.length : 0;
+    const opcoes = [
+      ["mes", "Mês atual"],
+      ["ano", "Ano atual"],
+      ["12m", "Últimos 12 meses"],
+      ["tudo", "Todo o histórico"]
+    ];
+    return `
+      <div class="periodo-filtros" role="group" aria-label="Período da análise">
+        ${opcoes.map(([id, rotulo]) => `<button type="button" class="btn btn-small${periodo === id ? " is-active" : ""}" data-action="analise-periodo" data-periodo="${id}">${rotulo}</button>`).join("")}
+      </div>
+      <div class="kpi-grid">
+        <article class="kpi-card"><p>Orçamentos</p><strong>${emitidos} emitidos</strong><span>${serie.fechados.length} fechados · ${serie.perdas.length} perdidos · ${serie.negociacao.length} em negociação</span><span>Conversão ${conversao}%</span></article>
+        <article class="kpi-card"><p>Valores</p><strong>${escapeHtml(money(valorFaturado))}</strong><span>Faturado de ${escapeHtml(money(valorOrcado))} orçados</span></article>
+        <article class="kpi-card"><p>Recorrência</p><strong>${serie.fechados.length} pedido${serie.fechados.length === 1 ? "" : "s"}</strong><span>Ticket médio ${escapeHtml(money(ticket))}</span></article>
+      </div>
+      <section><h3>Evolução histórica</h3>${graficoCurva(serie)}</section>
+      <section><h3>Motivos de perdas</h3>${graficoPerdas(serie.perdas)}</section>`;
+  }
+
+  function listaContatosHtml(client) {
+    const contatos = Array.isArray(client.contatos) ? client.contatos : [];
+    const linhas = contatos.length
+      ? contatos.map((contato) => `<tr><td>${escapeHtml(contato.nome)}</td><td>${escapeHtml(contato.cargo)}</td><td>${escapeHtml(contato.departamento)}</td><td>${escapeHtml(contato.telefone)}</td><td>${escapeHtml(contato.email)}</td></tr>`).join("")
+      : '<tr><td colspan="5">Nenhum contato vinculado a este CNPJ.</td></tr>';
+    return `
+      <div class="contatos-topo">
+        <p class="source-note">Pessoas da obra vinculadas a este CNPJ. A gravação fica na ficha local e, com o servidor ligado, em dados_ehe.json.</p>
+        <button type="button" class="btn btn-primary btn-small" data-action="mostrar-contato">+ Adicionar Contato</button>
+      </div>
+      <form id="form-contato" class="contato-form" hidden>
+        <label>Nome<input type="text" name="nome" required></label>
+        <label>Cargo<select name="cargo"><option>Comprador</option><option>Engenharia</option><option>Arquiteto(a)</option><option>Diretor</option></select></label>
+        <label>Departamento<select name="departamento"><option>Suprimentos</option><option>Civil</option><option>Projetos</option></select></label>
+        <label>Telefone / WhatsApp<input type="text" name="telefone"></label>
+        <label>E-mail<input type="email" name="email"></label>
+        <div class="form-actions">
+          <button type="submit" class="btn btn-primary">Vincular contato</button>
+        </div>
+      </form>
+      <div class="tabela-rolagem"><table class="bi-tabela"><thead><tr><th>Nome</th><th>Cargo</th><th>Departamento</th><th>Telefone</th><th>E-mail</th></tr></thead><tbody>${linhas}</tbody></table></div>`;
+  }
+
   function clientDrawerHtml(client) {
     const quotes = client.orcamentos.slice().sort((a, b) => a.data.localeCompare(b.data));
     const quoteBlock = quotes.length
@@ -507,14 +639,20 @@
       }).join("")}</ul>`
       : '<p class="empty">Nenhum pedido recente retornado pelo Nomus para esta ficha.</p>';
 
-    return `
-      <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:12px;">
-        <p class="drawer-lead" style="margin:0;">${escapeHtml(client.resumo)}</p>
-        <button type="button" class="btn btn-secondary" style="font-size:12px; padding:4px 8px;" data-action="editar-cliente">Editar cliente</button>
-      </div>
-
-      <!-- MODO LEITURA -->
-      <dl class="details" id="drawer-view-mode">
+    const aba = state.drawerAba || "geral";
+    const abas = [
+      ["geral", "Visão Geral"],
+      ["analise", "Análise Comercial & Gráficos"],
+      ["contatos", "Contatos vinculados"],
+      ["pedidos", "Pedidos/Orçamentos"]
+    ];
+    const painel = aba === "analise"
+      ? painelAnaliseHtml(client)
+      : aba === "contatos"
+        ? listaContatosHtml(client)
+        : aba === "pedidos"
+          ? `${quoteBlock}<section><h3>Histórico recente de pedidos</h3><p class="source-note">Consulta local da fase 1. Somente leitura.</p>${orders}</section>${blocoPrecos(client)}`
+          : `<dl class="details" id="drawer-view-mode">
         ${detail("Nome fantasia", escapeHtml(client.nomeFantasia || "Não informado"))}
         ${detail("CNPJ", escapeHtml(client.cnpj || "Não informado"))}
         ${detail("Tipo", escapeHtml(client.tipo))}
@@ -528,30 +666,23 @@
         ${detail("Última compra", client.ultimaCompra ? formatDate(client.ultimaCompra) : "Sem compra registrada")}
         ${detail("Linhas", `<div class="chips">${chips(client.linhas)}</div>`, true)}
       </dl>
-
       ${blocoProcessos(client, false)}
-      ${quoteBlock}
-      <section>
-        <h3>Histórico recente de pedidos</h3>
-        <p class="source-note">Simulação de consulta ao Nomus Industrial (fase 1). Somente leitura.</p>
-        ${orders}
-      </section>
-      ${blocoPrecos(client)}
       <form id="form-notes" class="notes-form">
         <h3>Anotações da Natália</h3>
-        <label>
-          Observações da obra
-          <textarea name="anotacoes" rows="5">${escapeHtml(client.anotacoes)}</textarea>
-        </label>
-        <label>
-          Próximo contato
-          <input type="date" name="proximoContato" value="${escapeHtml(client.proximoContato || "")}">
-          <span class="field-hint">Uma data futura tira o cliente da agenda de hoje e o deixa em Reagendados, na mesma fila.</span>
-        </label>
-        <div class="form-actions">
-          <button type="submit" class="btn btn-primary">Salvar anotação</button>
-        </div>
+        <label>Observações da obra<textarea name="anotacoes" rows="5">${escapeHtml(client.anotacoes)}</textarea></label>
+        <label>Próximo contato<input type="date" name="proximoContato" value="${escapeHtml(client.proximoContato || "")}"><span class="field-hint">Uma data futura tira o cliente da agenda de hoje e o deixa em Reagendados, na mesma fila.</span></label>
+        <div class="form-actions"><button type="submit" class="btn btn-primary">Salvar anotação</button></div>
       </form>`;
+
+    return `
+      <div class="drawer-toolbar">
+        <p class="drawer-lead">${escapeHtml(client.resumo)}</p>
+        <button type="button" class="btn btn-secondary btn-small" data-action="editar-cliente">Editar cliente</button>
+      </div>
+      <div class="ficha-abas" role="tablist">
+        ${abas.map(([id, rotulo]) => `<button type="button" class="ficha-aba${aba === id ? " is-active" : ""}" role="tab" aria-selected="${aba === id}" data-action="ficha-aba" data-aba="${id}">${rotulo}</button>`).join("")}
+      </div>
+      <div class="ficha-painel" role="tabpanel">${painel}</div>`;
   }
 
   function createFormHtml() {
@@ -616,6 +747,10 @@
     const client = getClient(id);
     if (!client) return;
     clearSearch();
+    if (state.drawerId !== id) {
+      state.drawerAba = "geral";
+      state.analisePeriodo = "12m";
+    }
     state.drawerId = id;
     document.getElementById("drawer-kicker").textContent = RANKINGS[client.ranking].label;
     document.getElementById("drawer-title").textContent = client.razaoSocial;
@@ -1315,6 +1450,7 @@
       linhas: Array.isArray(client.linhas) ? client.linhas : [],
       pedidos: Array.isArray(client.pedidos) ? client.pedidos : [],
       orcamentos: Array.isArray(client.orcamentos) ? client.orcamentos : [],
+      contatos: Array.isArray(client.contatos) ? client.contatos : [],
       anotacoes: String(client.anotacoes || ""),
       proximoContato: String(client.proximoContato || "")
     });
@@ -1334,7 +1470,8 @@
       return {
         ...client,
         anotacoes: typeof edit.anotacoes === "string" ? edit.anotacoes : client.anotacoes,
-        proximoContato: typeof edit.proximoContato === "string" ? edit.proximoContato : client.proximoContato
+        proximoContato: typeof edit.proximoContato === "string" ? edit.proximoContato : client.proximoContato,
+        contatos: Array.isArray(edit.contatos) ? edit.contatos : client.contatos
       };
     });
   }
@@ -1354,7 +1491,8 @@
       if (!client.origemManual && edits[client.id]) {
         edits[client.id] = {
           anotacoes: client.anotacoes,
-          proximoContato: client.proximoContato
+          proximoContato: client.proximoContato,
+          contatos: client.contatos || []
         };
       }
     });
@@ -1365,7 +1503,8 @@
     const edits = lerEdicoes();
     edits[client.id] = {
       anotacoes: String(client.anotacoes || ""),
-      proximoContato: String(client.proximoContato || "")
+      proximoContato: String(client.proximoContato || ""),
+      contatos: Array.isArray(client.contatos) ? client.contatos : []
     };
     writeStorage(EDITS_KEY, edits);
     persistirCarteira();
@@ -1551,6 +1690,39 @@
       return;
     }
     toast(`Anotação salva na ficha de ${client.razaoSocial}.`);
+  }
+
+  async function salvarContato(form) {
+    const client = getClient(state.drawerId);
+    if (!client) return;
+    const data = new FormData(form);
+    const nome = String(data.get("nome") || "").trim();
+    if (!nome) return;
+    if (!Array.isArray(client.contatos)) client.contatos = [];
+    client.contatos.push({
+      nome,
+      cargo: String(data.get("cargo") || ""),
+      departamento: String(data.get("departamento") || ""),
+      telefone: String(data.get("telefone") || "").trim(),
+      email: String(data.get("email") || "").trim()
+    });
+    gravarEdicao(client);
+    try {
+      await fetch("/api/clientes/contatos", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          id: client.id,
+          nomusId: client.nomusId || null,
+          contatos: client.contatos
+        })
+      });
+    } catch (error) {
+      /* Sem servidor local a lista permanece no navegador. */
+    }
+    state.drawerAba = "contatos";
+    openClient(client.id);
+    toast(`Contato de ${nome} vinculado a ${client.razaoSocial}.`);
   }
 
   function handleCreate(form) {
@@ -1808,6 +1980,18 @@
     }
     if (action === "new-client") abrirModalCliente();
     if (action === "editar-cliente") abrirModalCliente(state.drawerId);
+    if (action === "ficha-aba") {
+      state.drawerAba = element.dataset.aba || "geral";
+      if (state.drawerId) openClient(state.drawerId);
+    }
+    if (action === "analise-periodo") {
+      state.analisePeriodo = element.dataset.periodo || "12m";
+      if (state.drawerId) openClient(state.drawerId);
+    }
+    if (action === "mostrar-contato") {
+      const form = document.getElementById("form-contato");
+      if (form) form.hidden = false;
+    }
     if (action === "fechar-modal-cliente") fecharModalCliente();
     if (action === "open-feedback") openFeedback();
     if (action === "close-feedback") closeFeedback();
@@ -1848,7 +2032,7 @@
   function onSubmit(event) {
     const form = event.target;
     if (!(form instanceof HTMLFormElement)) return;
-    if (!["form-login", "form-register", "form-notes", "form-create", "form-search", "form-product-search", "form-feedback", "form-atividade", "form-perda", "form-cliente"].includes(form.id)) return;
+    if (!["form-login", "form-register", "form-notes", "form-create", "form-search", "form-product-search", "form-feedback", "form-atividade", "form-perda", "form-cliente", "form-contato"].includes(form.id)) return;
     event.preventDefault();
     if (form.id === "form-login") handleLogin(form);
     if (form.id === "form-register") handleRegister(form);
@@ -1859,6 +2043,7 @@
     if (form.id === "form-atividade") salvarAtividade(form);
     if (form.id === "form-perda") confirmarPerda(form);
     if (form.id === "form-cliente") salvarModalCliente(form);
+    if (form.id === "form-contato") salvarContato(form);
   }
 
   function togglePassword(button) {

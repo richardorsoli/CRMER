@@ -7,7 +7,7 @@ import json
 import os
 import re
 import uuid
-from datetime import datetime, timezone
+from datetime import timedelta, timezone
 from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from typing import Any
@@ -21,6 +21,12 @@ CAMINHO_DADOS = PASTA_OUTPUT / "dados_ehe.json"
 ARQUIVO_ENV = RAIZ / ".env"
 
 LIMITE_CORPO = 64 * 1024
+FUSO_BRASILIA = timezone(timedelta(hours=-3))
+
+
+def agora_brasilia() -> str:
+    """Horário de Brasília (UTC-3), sem horário de verão."""
+    return datetime.now(FUSO_BRASILIA).isoformat(timespec="seconds")
 
 
 def carregar_env() -> None:
@@ -64,7 +70,7 @@ def validar_sugestao(payload: Any) -> dict[str, Any]:
 
     return {
         "id": f"sug-{uuid.uuid4().hex[:8]}",
-        "data": datetime.now(timezone.utc).isoformat(),
+        "data": agora_brasilia(),
         "modulo": modulo,
         "tipo": tipo,
         "descricao": descricao,
@@ -119,7 +125,7 @@ def validar_atividade(payload: Any) -> dict[str, Any]:
     if data_informada and isinstance(data_informada, str):
         data_registro = data_informada.strip()
     else:
-        data_registro = datetime.now(timezone.utc).isoformat()
+        data_registro = agora_brasilia()
 
     return {
         "id": f"act-{uuid.uuid4().hex[:8]}",
@@ -207,6 +213,52 @@ class FeedbackHandler(SimpleHTTPRequestHandler):
             try:
                 item = registrar_sugestao(payload)
                 self._json(201, {"ok": True, "item": item})
+            except FeedbackError as exc:
+                self._json(400, {"erro": str(exc)})
+            return
+
+        if caminho == "/api/clientes/contatos":
+            try:
+                if not isinstance(payload, dict):
+                    raise FeedbackError("O corpo da requisição precisa ser um objeto JSON.")
+                contatos = payload.get("contatos")
+                if not isinstance(contatos, list):
+                    raise FeedbackError("O campo 'contatos' precisa ser uma lista.")
+                if not CAMINHO_DADOS.exists():
+                    self._json(404, {"erro": "Arquivo dados_ehe.json não encontrado."})
+                    return
+                with open(CAMINHO_DADOS, "r", encoding="utf-8") as f:
+                    dados = json.load(f)
+                clientes = dados.get("clientes") if isinstance(dados, dict) else None
+                if not isinstance(clientes, list):
+                    raise FeedbackError("A base local não tem a lista de clientes.")
+                alvo_id = str(payload.get("id") or "")
+                alvo_nomus = payload.get("nomusId")
+                cliente = None
+                for item in clientes:
+                    if alvo_id and str(item.get("id")) == alvo_id:
+                        cliente = item
+                        break
+                    if alvo_nomus is not None and item.get("nomusId") == alvo_nomus:
+                        cliente = item
+                        break
+                if not cliente:
+                    self._json(404, {"erro": "Cliente não encontrado na base local."})
+                    return
+                cliente["contatos"] = [
+                    {
+                        "nome": str(c.get("nome") or "").strip(),
+                        "cargo": str(c.get("cargo") or "").strip(),
+                        "departamento": str(c.get("departamento") or "").strip(),
+                        "telefone": str(c.get("telefone") or "").strip(),
+                        "email": str(c.get("email") or "").strip(),
+                    }
+                    for c in contatos
+                    if isinstance(c, dict) and str(c.get("nome") or "").strip()
+                ]
+                with open(CAMINHO_DADOS, "w", encoding="utf-8") as f:
+                    json.dump(dados, f, ensure_ascii=False, indent=2)
+                self._json(200, {"sucesso": True, "contatos": cliente["contatos"]})
             except FeedbackError as exc:
                 self._json(400, {"erro": str(exc)})
             return
@@ -384,7 +436,7 @@ def main(argv: list[str] | None = None) -> int:
     argumentos = construir_parser().parse_args(argv)
     servidor = ThreadingHTTPServer((argumentos.host, argumentos.porta), FeedbackHandler)
     print(f"CRMER no ar em http://localhost:{argumentos.porta}/ (rede: 0.0.0.0)", flush=True)
-    print("Endpoints ativos: POST /api/feedback | POST /api/clientes | PUT /api/clientes/<id> | GET/POST /api/atividades", flush=True)
+    print("Endpoints ativos: POST /api/feedback | POST /api/clientes | POST /api/clientes/contatos | PUT /api/clientes/<id> | GET/POST /api/atividades", flush=True)
     try:
         servidor.serve_forever()
     except KeyboardInterrupt:
