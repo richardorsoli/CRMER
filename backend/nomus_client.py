@@ -121,6 +121,30 @@ class NomusClient:
         except ValueError as exc:
             raise NomusError(f"A resposta da atualização do cliente {id_cliente} não é um JSON válido.") from exc
 
+    def criar_cliente(self, payload: dict[str, Any]) -> dict[str, Any]:
+        """Cria um cliente no Nomus via POST /clientes e devolve o JSON com o id gerado."""
+        url = f"{self.base_url}/clientes"
+        try:
+            resposta = self.session.post(url, json=payload, timeout=self.timeout)
+        except requests.RequestException as exc:
+            raise NomusError(f"Falha de conexão ao criar cliente: {exc}") from exc
+
+        if resposta.status_code in {401, 403}:
+            raise NomusAuthError("O Nomus recusou a autenticação ou permissão de escrita. Confira NOMUS_AUTH_TOKEN.")
+
+        if resposta.status_code not in {200, 201}:
+            raise NomusError(
+                f"O Nomus respondeu status {resposta.status_code} ao criar cliente. {_detalhe(resposta, self._token)}"
+            )
+
+        try:
+            corpo = resposta.json()
+        except ValueError as exc:
+            raise NomusError("A resposta da criação do cliente não é um JSON válido.") from exc
+        if not isinstance(corpo, dict):
+            raise NomusError("A resposta da criação do cliente não veio como objeto.")
+        return corpo
+
     def listar_clientes(self) -> list[dict[str, Any]]:
         return self.listar("clientes")
 

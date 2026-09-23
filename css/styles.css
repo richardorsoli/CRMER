@@ -1678,6 +1678,69 @@ body.drawer-open {
   gap: 8px;
 }
 
+.modal-cliente {
+  width: min(720px, calc(100% - 32px));
+  max-height: calc(100% - 32px);
+  padding: 0;
+  border: 1px solid var(--line);
+  border-radius: 16px;
+  background: var(--paper, #fff);
+  color: inherit;
+  box-shadow: var(--shadow);
+}
+
+.modal-cliente::backdrop {
+  background: rgba(18, 28, 38, 0.45);
+}
+
+.modal-cliente form {
+  display: grid;
+  gap: 14px;
+  padding: 18px 18px 16px;
+  overflow: auto;
+  max-height: calc(100vh - 48px);
+}
+
+.modal-cliente-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 12px 14px;
+}
+
+.modal-cliente-grid label {
+  display: grid;
+  gap: 4px;
+  font-size: 13px;
+  font-weight: 650;
+}
+
+.modal-cliente-grid .campo-largo {
+  grid-column: 1 / -1;
+}
+
+.modal-cliente-grid input,
+.modal-cliente-grid select,
+.modal-cliente-grid textarea {
+  font: inherit;
+  font-weight: 450;
+  padding: 8px 10px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: #fff;
+}
+
+.modal-cliente-acoes {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
+@media (max-width: 640px) {
+  .modal-cliente-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
 @media (prefers-reduced-motion: reduce) {
   .drawer {
     animation: none;

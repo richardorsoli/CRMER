@@ -458,6 +458,88 @@
     </form>
   </dialog>
 
+  <dialog id="modal-cliente" class="modal-cliente" aria-labelledby="modal-cliente-titulo">
+    <form id="form-cliente">
+      <header class="feedback-header">
+        <div>
+          <p class="eyebrow">Carteira Nomus</p>
+          <h2 id="modal-cliente-titulo">Novo cliente</h2>
+        </div>
+        <button type="button" class="icon-btn" data-action="fechar-modal-cliente" aria-label="Fechar formulário do cliente">
+          <svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18"></path></svg>
+        </button>
+      </header>
+      <p id="modal-cliente-erro" class="form-feedback" role="alert" hidden></p>
+      <div class="modal-cliente-grid">
+        <label>
+          Tipo
+          <select name="tipoPessoa" required>
+            <option value="1">Pessoa Jurídica (1)</option>
+            <option value="2">Pessoa Física (2)</option>
+          </select>
+        </label>
+        <label>
+          CNPJ / CPF
+          <input type="text" name="cnpj" autocomplete="off" required>
+        </label>
+        <label class="campo-largo">
+          Razão Social / Nome Completo
+          <input type="text" name="razaoSocial" autocomplete="organization" required>
+        </label>
+        <label>
+          Nome Fantasia
+          <input type="text" name="nomeFantasia" autocomplete="organization">
+        </label>
+        <label>
+          E-mail
+          <input type="email" name="email" autocomplete="email">
+        </label>
+        <label>
+          Telefone / WhatsApp
+          <input type="tel" name="telefone" autocomplete="tel">
+        </label>
+        <label class="campo-largo">
+          Logradouro
+          <input type="text" name="logradouro" autocomplete="street-address">
+        </label>
+        <label>
+          Bairro
+          <input type="text" name="bairro">
+        </label>
+        <label>
+          CEP
+          <input type="text" name="cep" inputmode="numeric" autocomplete="postal-code">
+        </label>
+        <label>
+          Cidade
+          <input type="text" name="cidade" autocomplete="address-level2">
+        </label>
+        <label>
+          UF
+          <select name="uf">
+            <option value="AC">AC</option><option value="AL">AL</option><option value="AM">AM</option>
+            <option value="AP">AP</option><option value="BA">BA</option><option value="CE">CE</option>
+            <option value="DF">DF</option><option value="ES">ES</option><option value="GO">GO</option>
+            <option value="MA">MA</option><option value="MG">MG</option><option value="MS">MS</option>
+            <option value="MT">MT</option><option value="PA">PA</option><option value="PB">PB</option>
+            <option value="PE">PE</option><option value="PI">PI</option><option value="PR">PR</option>
+            <option value="RJ">RJ</option><option value="RN">RN</option><option value="RO">RO</option>
+            <option value="RR">RR</option><option value="RS">RS</option><option value="SC">SC</option>
+            <option value="SE">SE</option><option value="SP" selected>SP</option><option value="TO">TO</option>
+          </select>
+        </label>
+        <label class="campo-largo">
+          Observações / Anotações
+          <textarea name="observacoes" rows="4"></textarea>
+        </label>
+      </div>
+      <div class="form-actions modal-cliente-acoes">
+        <button type="button" class="btn" data-action="fechar-modal-cliente">Cancelar</button>
+        <button type="submit" class="btn btn-primary">Salvar no Nomus</button>
+      </div>
+    </form>
+  </dialog>
+
   <div id="toast" class="toast" role="status" aria-live="polite" hidden></div>
   <script src="js/mock-data.js"></script>
   <script src="js/auth.js"></script>

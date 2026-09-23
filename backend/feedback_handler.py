@@ -219,6 +219,75 @@ class FeedbackHandler(SimpleHTTPRequestHandler):
                 self._json(400, {"erro": str(exc)})
             return
 
+        if caminho == "/api/clientes":
+            try:
+                if not isinstance(payload, dict):
+                    raise FeedbackError("O corpo da requisição precisa ser um objeto JSON.")
+                payload_nomus = {
+                    "razaoSocial": str(payload.get("razaoSocial") or "").strip(),
+                    "nomeFantasia": str(payload.get("nomeFantasia") or "").strip(),
+                    "cnpj": str(payload.get("cnpj") or "").strip(),
+                    "tipoPessoa": payload.get("tipoPessoa", 1),
+                    "telefone": str(payload.get("telefone") or "").strip(),
+                    "email": str(payload.get("email") or "").strip(),
+                    "observacoes": str(payload.get("observacoes") or payload.get("anotacoes") or "").strip(),
+                    "logradouro": str(payload.get("logradouro") or "").strip(),
+                    "bairro": str(payload.get("bairro") or "").strip(),
+                    "cidade": str(payload.get("cidade") or "").strip(),
+                    "uf": str(payload.get("uf") or "").strip(),
+                    "cep": str(payload.get("cep") or "").strip(),
+                }
+                if not payload_nomus["razaoSocial"]:
+                    raise FeedbackError("O campo 'razaoSocial' é obrigatório.")
+
+                from backend.nomus_client import NomusClient
+
+                client = NomusClient()
+                resp = client.criar_cliente(payload_nomus)
+                id_nomus = resp.get("id") or resp.get("nomusId")
+                if id_nomus is None:
+                    self._json(502, {"sucesso": False, "erro": "O Nomus não devolveu o id do cliente criado."})
+                    return
+
+                novo_cliente = {
+                    "id": f"nomus-{id_nomus}",
+                    "nomusId": id_nomus,
+                    "razaoSocial": payload_nomus["razaoSocial"],
+                    "nomeFantasia": payload_nomus["nomeFantasia"],
+                    "cnpj": payload_nomus["cnpj"],
+                    "tipoPessoa": payload_nomus["tipoPessoa"],
+                    "telefone": payload_nomus["telefone"],
+                    "email": payload_nomus["email"],
+                    "anotacoes": payload_nomus["observacoes"],
+                    "cidade": payload_nomus["cidade"],
+                    "uf": payload_nomus["uf"],
+                    "logradouro": payload_nomus["logradouro"],
+                    "bairro": payload_nomus["bairro"],
+                    "cep": payload_nomus["cep"],
+                    "pedidos": [],
+                    "orcamentos": [],
+                }
+
+                PASTA_OUTPUT.mkdir(parents=True, exist_ok=True)
+                dados: dict[str, Any] = {"clientes": []}
+                if CAMINHO_DADOS.exists():
+                    with open(CAMINHO_DADOS, "r", encoding="utf-8") as f:
+                        carregado = json.load(f)
+                    if isinstance(carregado, dict):
+                        dados = carregado
+                if not isinstance(dados.get("clientes"), list):
+                    dados["clientes"] = []
+                dados["clientes"].insert(0, novo_cliente)
+                with open(CAMINHO_DADOS, "w", encoding="utf-8") as f:
+                    json.dump(dados, f, ensure_ascii=False, indent=2)
+
+                self._json(201, {"sucesso": True, "cliente": novo_cliente})
+            except FeedbackError as exc:
+                self._json(400, {"sucesso": False, "erro": str(exc)})
+            except Exception as exc:
+                self._json(500, {"sucesso": False, "erro": str(exc)})
+            return
+
         self.send_error(404)
 
     def do_PUT(self) -> None:
@@ -261,23 +330,38 @@ class FeedbackHandler(SimpleHTTPRequestHandler):
             nome_display = cliente.get("nomeFantasia") or cliente.get("razaoSocial") or ""
             payload_nomus = {
                 "id": id_cliente,
-                "nome": nome_display,
-                "razaoSocial": cliente.get("razaoSocial") or nome_display,
-                "cnpj": cliente.get("cnpj") or "",
-                "tipoPessoa": cliente.get("tipoPessoa", 1),
+                "nome": dados_novos.get("nomeFantasia") or dados_novos.get("razaoSocial") or nome_display,
+                "razaoSocial": dados_novos.get("razaoSocial", cliente.get("razaoSocial") or nome_display),
+                "nomeFantasia": dados_novos.get("nomeFantasia", cliente.get("nomeFantasia", "")),
+                "cnpj": dados_novos.get("cnpj", cliente.get("cnpj") or ""),
+                "tipoPessoa": dados_novos.get("tipoPessoa", cliente.get("tipoPessoa", 1)),
                 "ativo": cliente.get("ativoNomus", True),
                 "telefone": dados_novos.get("telefone", cliente.get("telefone", "")),
                 "email": dados_novos.get("email", cliente.get("email", "")),
                 "observacoes": dados_novos.get("observacoes", cliente.get("anotacoes", "")),
+                "logradouro": dados_novos.get("logradouro", cliente.get("logradouro", "")),
+                "bairro": dados_novos.get("bairro", cliente.get("bairro", "")),
+                "cidade": dados_novos.get("cidade", cliente.get("cidade", "")),
+                "uf": dados_novos.get("uf", cliente.get("uf", "")),
+                "cep": dados_novos.get("cep", cliente.get("cep", "")),
             }
 
             from backend.nomus_client import NomusClient
             client = NomusClient()
             client.atualizar_cliente(id_cliente, payload_nomus)
 
+            cliente["razaoSocial"] = payload_nomus["razaoSocial"]
+            cliente["nomeFantasia"] = payload_nomus["nomeFantasia"]
+            cliente["cnpj"] = payload_nomus["cnpj"]
+            cliente["tipoPessoa"] = payload_nomus["tipoPessoa"]
             cliente["telefone"] = payload_nomus["telefone"]
             cliente["email"] = payload_nomus["email"]
             cliente["anotacoes"] = payload_nomus["observacoes"]
+            cliente["logradouro"] = payload_nomus["logradouro"]
+            cliente["bairro"] = payload_nomus["bairro"]
+            cliente["cidade"] = payload_nomus["cidade"]
+            cliente["uf"] = payload_nomus["uf"]
+            cliente["cep"] = payload_nomus["cep"]
 
             with open(CAMINHO_DADOS, "w", encoding="utf-8") as f:
                 json.dump(dados, f, ensure_ascii=False, indent=2)
@@ -300,7 +384,7 @@ def main(argv: list[str] | None = None) -> int:
     argumentos = construir_parser().parse_args(argv)
     servidor = ThreadingHTTPServer((argumentos.host, argumentos.porta), FeedbackHandler)
     print(f"CRMER no ar em http://localhost:{argumentos.porta}/ (rede: 0.0.0.0)", flush=True)
-    print("Endpoints ativos: POST /api/feedback | PUT /api/clientes/<id> | GET/POST /api/atividades", flush=True)
+    print("Endpoints ativos: POST /api/feedback | POST /api/clientes | PUT /api/clientes/<id> | GET/POST /api/atividades", flush=True)
     try:
         servidor.serve_forever()
     except KeyboardInterrupt:

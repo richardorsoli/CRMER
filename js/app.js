@@ -484,7 +484,7 @@
     return `
       <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:12px;">
         <p class="drawer-lead" style="margin:0;">${escapeHtml(client.resumo)}</p>
-        <button type="button" id="btn-toggle-edit" class="btn btn-secondary" style="font-size:12px; padding:4px 8px;" onclick="window.alternarEdicaoCliente()">✏️ Editar contato</button>
+        <button type="button" class="btn btn-secondary" style="font-size:12px; padding:4px 8px;" data-action="editar-cliente">Editar cliente</button>
       </div>
 
       <!-- MODO LEITURA -->
@@ -502,28 +502,6 @@
         ${detail("Última compra", client.ultimaCompra ? formatDate(client.ultimaCompra) : "Sem compra registrada")}
         ${detail("Linhas", `<div class="chips">${chips(client.linhas)}</div>`, true)}
       </dl>
-
-      <!-- MODO EDIÇÃO -->
-      <form id="drawer-edit-mode" style="display:none; background:rgba(255,255,255,0.03); padding:12px; border-radius:8px; border:1px solid #333; margin-bottom:16px;" onsubmit="window.salvarEdicaoCliente(event)">
-        <h4 style="margin:0 0 10px 0; font-size:13px; color:#93c5fd;">Atualizar Dados no Nomus ERP</h4>
-        <label style="display:block; margin-bottom:8px; font-size:12px;">
-          Telefone:
-          <input type="text" id="edit-nomus-telefone" value="${escapeHtml(client.telefone || "")}" style="width:100%; box-sizing:border-box; padding:6px; margin-top:2px;">
-        </label>
-        <label style="display:block; margin-bottom:8px; font-size:12px;">
-          E-mail:
-          <input type="email" id="edit-nomus-email" value="${escapeHtml(client.email || "")}" style="width:100%; box-sizing:border-box; padding:6px; margin-top:2px;">
-        </label>
-        <label style="display:block; margin-bottom:10px; font-size:12px;">
-          Observações / Anotações Nomus:
-          <textarea id="edit-nomus-obs" rows="3" style="width:100%; box-sizing:border-box; padding:6px; margin-top:2px;">${escapeHtml(client.anotacoes || "")}</textarea>
-        </label>
-        <div style="display:flex; justify-content:flex-end; gap:8px;">
-          <button type="button" class="btn btn-secondary" onclick="window.alternarEdicaoCliente()">Cancelar</button>
-          <button type="submit" id="btn-save-nomus-action" class="btn btn-primary">Salvar no Nomus</button>
-        </div>
-        <p id="edit-feedback-msg" style="display:none; font-size:12px; margin-top:8px;"></p>
-      </form>
 
       ${blocoProcessos(client, false)}
       ${quoteBlock}
@@ -621,11 +599,133 @@
   }
 
   function openCreate() {
-    state.drawerId = null;
-    document.getElementById("drawer-kicker").textContent = "Nova ficha";
-    document.getElementById("drawer-title").textContent = "Novo Cliente";
-    document.getElementById("drawer-body").innerHTML = createFormHtml();
-    showDrawer();
+    abrirModalCliente();
+  }
+
+  function abrirModalCliente(id) {
+    const dialog = document.getElementById("modal-cliente");
+    const form = document.getElementById("form-cliente");
+    const titulo = document.getElementById("modal-cliente-titulo");
+    const erro = document.getElementById("modal-cliente-erro");
+    if (!dialog || !form) return;
+    form.reset();
+    if (erro) {
+      erro.hidden = true;
+      erro.textContent = "";
+    }
+    const client = id ? getClient(id) : null;
+    form.dataset.modo = client ? "editar" : "criar";
+    form.dataset.id = client ? client.id : "";
+    titulo.textContent = client ? "Editar cliente" : "Novo cliente";
+    if (client) {
+      form.tipoPessoa.value = String(client.tipoPessoa || 1);
+      form.cnpj.value = client.cnpj || "";
+      form.razaoSocial.value = client.razaoSocial || "";
+      form.nomeFantasia.value = client.nomeFantasia || "";
+      form.email.value = client.email || "";
+      form.telefone.value = client.telefone || client.whatsapp || "";
+      form.logradouro.value = client.logradouro || "";
+      form.bairro.value = client.bairro || "";
+      form.cep.value = client.cep || "";
+      form.cidade.value = client.cidade || "";
+      if ([...form.uf.options].some((option) => option.value === client.uf)) form.uf.value = client.uf;
+      form.observacoes.value = client.anotacoes || "";
+    }
+    if (typeof dialog.showModal === "function") dialog.showModal();
+  }
+
+  function fecharModalCliente() {
+    const dialog = document.getElementById("modal-cliente");
+    if (dialog && dialog.open) dialog.close();
+  }
+
+  async function salvarModalCliente(form) {
+    const erro = document.getElementById("modal-cliente-erro");
+    const botao = form.querySelector("[type='submit']");
+    const dados = {
+      tipoPessoa: Number(form.tipoPessoa.value) || 1,
+      cnpj: form.cnpj.value.trim(),
+      razaoSocial: form.razaoSocial.value.trim(),
+      nomeFantasia: form.nomeFantasia.value.trim(),
+      email: form.email.value.trim(),
+      telefone: form.telefone.value.trim(),
+      logradouro: form.logradouro.value.trim(),
+      bairro: form.bairro.value.trim(),
+      cep: form.cep.value.trim(),
+      cidade: form.cidade.value.trim(),
+      uf: form.uf.value.trim(),
+      observacoes: form.observacoes.value.trim()
+    };
+    const modo = form.dataset.modo === "editar" ? "editar" : "criar";
+    let url = "/api/clientes";
+    let method = "POST";
+    if (modo === "editar") {
+      const atual = getClient(form.dataset.id);
+      if (!atual) return;
+      const nomusId = atual.nomusId || String(atual.id).replace(/^nomus-/, "");
+      url = `/api/clientes/${nomusId}`;
+      method = "PUT";
+    }
+    if (erro) erro.hidden = true;
+    if (botao) botao.disabled = true;
+    try {
+      const resposta = await fetch(url, {
+        method,
+        headers: { "Content-Type": "application/json; charset=utf-8" },
+        body: JSON.stringify(dados)
+      });
+      const resultado = await resposta.json();
+      if (!resposta.ok || !resultado.sucesso) {
+        throw new Error(resultado.erro || "Falha ao gravar no Nomus");
+      }
+      if (modo === "editar") {
+        const client = getClient(form.dataset.id);
+        Object.assign(client, {
+          razaoSocial: dados.razaoSocial,
+          nomeFantasia: dados.nomeFantasia,
+          cnpj: dados.cnpj,
+          tipoPessoa: dados.tipoPessoa,
+          telefone: dados.telefone,
+          email: dados.email,
+          anotacoes: dados.observacoes,
+          cidade: dados.cidade,
+          uf: dados.uf,
+          logradouro: dados.logradouro,
+          bairro: dados.bairro,
+          cep: dados.cep
+        });
+        renderClientList();
+        renderDashboard();
+        if (state.drawerId === client.id) openClient(client.id);
+      } else if (resultado.cliente) {
+        const novo = normalizarCliente({
+          ...resultado.cliente,
+          ranking: "contato",
+          tipo: dados.tipoPessoa === 2 ? "Pessoa física" : "Pessoa jurídica",
+          contato: dados.nomeFantasia || dados.razaoSocial,
+          cargo: "Comprador",
+          resumo: dados.observacoes || "Cliente incluído no Nomus.",
+          linhas: [],
+          faturamento12m: 0,
+          whatsapp: dados.telefone,
+          proximoContato: TODAY,
+          origemManual: true
+        });
+        state.clients.unshift(novo);
+        persistirCarteira();
+        renderClientList();
+        renderDashboard();
+      }
+      toast(modo === "editar" ? "Cliente atualizado no Nomus." : "Cliente criado no Nomus.");
+      fecharModalCliente();
+    } catch (err) {
+      if (erro) {
+        erro.hidden = false;
+        erro.textContent = err.message;
+      }
+    } finally {
+      if (botao) botao.disabled = false;
+    }
   }
 
   function precosDoCliente(client) {
@@ -1494,7 +1594,9 @@
       state.atividadeClienteId = null;
       renderFormularioAtividade();
     }
-    if (action === "new-client") openCreate();
+    if (action === "new-client") abrirModalCliente();
+    if (action === "editar-cliente") abrirModalCliente(state.drawerId);
+    if (action === "fechar-modal-cliente") fecharModalCliente();
     if (action === "open-feedback") openFeedback();
     if (action === "close-feedback") closeFeedback();
     if (action === "open-changelog") openChangelog();
@@ -1534,7 +1636,7 @@
   function onSubmit(event) {
     const form = event.target;
     if (!(form instanceof HTMLFormElement)) return;
-    if (!["form-login", "form-register", "form-notes", "form-create", "form-search", "form-product-search", "form-feedback", "form-atividade", "form-perda"].includes(form.id)) return;
+    if (!["form-login", "form-register", "form-notes", "form-create", "form-search", "form-product-search", "form-feedback", "form-atividade", "form-perda", "form-cliente"].includes(form.id)) return;
     event.preventDefault();
     if (form.id === "form-login") handleLogin(form);
     if (form.id === "form-register") handleRegister(form);
@@ -1544,6 +1646,7 @@
     if (form.id === "form-feedback") handleFeedback(form);
     if (form.id === "form-atividade") salvarAtividade(form);
     if (form.id === "form-perda") confirmarPerda(form);
+    if (form.id === "form-cliente") salvarModalCliente(form);
   }
 
   function togglePassword(button) {
