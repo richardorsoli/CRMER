@@ -97,6 +97,30 @@ class NomusClient:
             self.session.mount("http://", HTTPAdapter(max_retries=_politica_retry()))
         return politica
 
+    def atualizar_cliente(self, id_cliente: int, payload: dict[str, Any]) -> dict[str, Any]:
+        """Atualiza dados cadastrais de um cliente no Nomus via PUT /clientes/:id."""
+        url = f"{self.base_url}/clientes/{int(id_cliente)}"
+        try:
+            resposta = self.session.put(url, json=payload, timeout=self.timeout)
+        except requests.RequestException as exc:
+            raise NomusError(f"Falha de conexão ao atualizar cliente {id_cliente}: {exc}") from exc
+
+        if resposta.status_code in {401, 403}:
+            raise NomusAuthError("O Nomus recusou a autenticação ou permissão de escrita. Confira NOMUS_AUTH_TOKEN.")
+
+        if resposta.status_code not in {200, 201, 204}:
+            raise NomusError(
+                f"O Nomus respondeu status {resposta.status_code} ao atualizar cliente {id_cliente}. {_detalhe(resposta, self._token)}"
+            )
+
+        if resposta.status_code == 204 or not resposta.content:
+            return {"id": id_cliente, "sucesso": True}
+
+        try:
+            return resposta.json()
+        except ValueError as exc:
+            raise NomusError(f"A resposta da atualização do cliente {id_cliente} não é um JSON válido.") from exc
+
     def listar_clientes(self) -> list[dict[str, Any]]:
         return self.listar("clientes")
 
