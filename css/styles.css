@@ -1022,6 +1022,171 @@ textarea {
   color: var(--muted);
 }
 
+.bi-painel {
+  margin-bottom: 22px;
+}
+
+.bi-periodo {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px 18px;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 14px;
+}
+
+.bi-periodo h2 {
+  margin: 0;
+  font-size: 20px;
+}
+
+.bi-periodo-controles {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
+}
+
+.bi-data {
+  display: flex;
+  gap: 6px;
+  align-items: center;
+  font-size: 13px;
+  color: var(--muted);
+}
+
+.bi-data input {
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 6px 8px;
+  background: var(--surface);
+  color: var(--ink);
+}
+
+.bi-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.bi-card {
+  padding: 14px 16px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: var(--surface);
+}
+
+.bi-card h3 {
+  margin: 0 0 10px;
+  font-size: 15px;
+}
+
+.bi-bar {
+  display: grid;
+  grid-template-columns: minmax(0, 1.4fr) minmax(72px, auto);
+  gap: 4px 10px;
+  align-items: center;
+  width: 100%;
+  margin: 0 0 8px;
+  padding: 4px 0;
+  border: 0;
+  background: transparent;
+  text-align: left;
+  cursor: pointer;
+  color: inherit;
+  font: inherit;
+}
+
+.bi-bar:hover .bi-bar-fill {
+  filter: brightness(1.08);
+}
+
+.bi-bar-rotulo {
+  font-size: 13px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.bi-bar-valor {
+  font-size: 12px;
+  font-weight: 700;
+  text-align: right;
+}
+
+.bi-bar-trilho {
+  grid-column: 1 / -1;
+  height: 7px;
+  border-radius: 99px;
+  background: #e7edf3;
+  overflow: hidden;
+}
+
+.bi-bar-fill {
+  display: block;
+  height: 100%;
+  border-radius: 99px;
+  background: var(--navy);
+  transition: width 0.2s ease, filter 0.15s ease;
+}
+
+.bi-dialog {
+  width: min(760px, calc(100vw - 32px));
+  max-height: calc(100vh - 48px);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  padding: 0;
+  background: var(--surface);
+  color: var(--ink);
+}
+
+.bi-dialog form {
+  display: grid;
+  gap: 12px;
+  padding: 16px;
+  overflow: auto;
+  max-height: calc(100vh - 48px);
+}
+
+.bi-dialog-topo {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  align-items: center;
+}
+
+.bi-dialog-topo h2 {
+  margin: 0;
+  font-size: 18px;
+}
+
+.bi-tabela {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 13px;
+}
+
+.bi-tabela th,
+.bi-tabela td {
+  padding: 8px 6px;
+  border-bottom: 1px solid var(--line);
+  text-align: left;
+  vertical-align: top;
+}
+
+.bi-tabela th {
+  font-size: 11px;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+
+@media (max-width: 800px) {
+  .bi-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
 .product-search {
   margin: 0 0 12px;
 }

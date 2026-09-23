@@ -257,7 +257,22 @@
         </section>
 
         <section id="view-products" aria-label="Produtos" hidden>
+          <section class="bi-painel" aria-label="Painel analítico de vendas">
+            <header class="bi-periodo">
+              <h2>Painel analítico</h2>
+              <div class="bi-periodo-controles" role="group" aria-label="Período">
+                <button type="button" class="tab" data-action="bi-periodo" data-periodo="mes">Mês atual</button>
+                <button type="button" class="tab" data-action="bi-periodo" data-periodo="ano">Ano atual</button>
+                <button type="button" class="tab" data-action="bi-periodo" data-periodo="12m" aria-selected="true">Últimos 12 meses</button>
+                <button type="button" class="tab" data-action="bi-periodo" data-periodo="custom">Personalizado</button>
+                <label class="bi-data">Início <input id="bi-inicio" type="date"></label>
+                <label class="bi-data">Fim <input id="bi-fim" type="date"></label>
+              </div>
+            </header>
+            <div id="bi-grid" class="bi-grid"></div>
+          </section>
           <header class="section-header">
+            <h2>Catálogo</h2>
             <p id="product-count" class="kpi-hint"></p>
           </header>
           <form id="form-product-search" class="product-search" role="search">
@@ -455,6 +470,16 @@
         <button type="button" class="btn" data-action="cancelar-perda">Cancelar</button>
         <button type="submit" class="btn btn-primary">Salvar</button>
       </div>
+    </form>
+  </dialog>
+
+  <dialog id="dialog-bi" class="bi-dialog" aria-labelledby="bi-dialog-titulo">
+    <form method="dialog">
+      <header class="bi-dialog-topo">
+        <h2 id="bi-dialog-titulo">Detalhe</h2>
+        <button type="submit" class="btn">Fechar</button>
+      </header>
+      <div id="bi-dialog-corpo"></div>
     </form>
   </dialog>
 

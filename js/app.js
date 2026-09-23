@@ -44,6 +44,9 @@
     produtosFonte: "simulada",
     productLine: "todos",
     productQuery: "",
+    historicoPrecos: [],
+    biPeriodo: "12m",
+    biCache: null,
     searchIndex: -1,
     searchTimer: 0,
     atividades: [],
@@ -841,6 +844,184 @@
     return `<svg class="price-chart" viewBox="0 0 ${largura} ${altura}" role="img" aria-label="Preço unitário nas datas de emissão"><line class="price-axis" x1="${margem}" y1="${altura - margem}" x2="${largura - margem}" y2="${altura - margem}"></line><polyline class="price-line" points="${linha}"></polyline>${marcas}</svg>`;
   }
 
+  function referenciaBi() {
+    const iso = (mock && mock.TODAY) || "2026-09-22";
+    const [ano, mes, dia] = iso.split("-").map(Number);
+    return new Date(ano, mes - 1, dia);
+  }
+
+  function intervaloBi() {
+    const hoje = referenciaBi();
+    const iso = (data) => {
+      const m = String(data.getMonth() + 1).padStart(2, "0");
+      const d = String(data.getDate()).padStart(2, "0");
+      return `${data.getFullYear()}-${m}-${d}`;
+    };
+    if (state.biPeriodo === "mes") {
+      const inicio = new Date(hoje.getFullYear(), hoje.getMonth(), 1);
+      return { inicio: iso(inicio), fim: iso(hoje) };
+    }
+    if (state.biPeriodo === "ano") {
+      return { inicio: `${hoje.getFullYear()}-01-01`, fim: iso(hoje) };
+    }
+    if (state.biPeriodo === "custom") {
+      const inicio = document.getElementById("bi-inicio");
+      const fim = document.getElementById("bi-fim");
+      return {
+        inicio: (inicio && inicio.value) || "2000-01-01",
+        fim: (fim && fim.value) || iso(hoje)
+      };
+    }
+    const inicio = new Date(hoje);
+    inicio.setFullYear(inicio.getFullYear() - 1);
+    return { inicio: iso(inicio), fim: iso(hoje) };
+  }
+
+  function clientePorNomus(idCliente) {
+    const chave = String(idCliente);
+    return state.clients.find((client) => String(client.nomusId) === chave || String(client.id).replace(/^nomus-/, "") === chave);
+  }
+
+  function linhasFaturadas() {
+    const { inicio, fim } = intervaloBi();
+    const dentro = (data) => data && data >= inicio && data <= fim;
+    if (state.historicoPrecos.length) {
+      return state.historicoPrecos.filter((row) => dentro(String(row.dataEmissao || ""))).map((row) => {
+        const quantidade = Number(row.quantidade) || 0;
+        const unitario = Number(row.valorUnitario) || 0;
+        const client = clientePorNomus(row.idCliente);
+        return {
+          data: String(row.dataEmissao || ""),
+          produto: String(row.nomeProduto || "Produto"),
+          idProduto: row.idProduto,
+          quantidade,
+          valor: quantidade * unitario,
+          clienteId: client ? client.id : `nomus-${row.idCliente}`,
+          cliente: client ? (client.nomeFantasia || client.razaoSocial) : `Cliente ${row.idCliente}`,
+          uf: client ? String(client.uf || "—") : "—",
+          pedido: ""
+        };
+      });
+    }
+    const linhas = [];
+    state.clients.forEach((client) => {
+      (client.pedidos || []).forEach((pedido) => {
+        if (!dentro(String(pedido.data || ""))) return;
+        linhas.push({
+          data: String(pedido.data || ""),
+          produto: String(pedido.item || "Pedido"),
+          idProduto: null,
+          quantidade: Number(pedido.quantidade) || 0,
+          valor: Number(pedido.valor) || 0,
+          clienteId: client.id,
+          cliente: client.nomeFantasia || client.razaoSocial,
+          uf: String(client.uf || "—"),
+          pedido: String(pedido.codigo || "")
+        });
+      });
+    });
+    return linhas;
+  }
+
+  function agrupar(linhas, chave, campo) {
+    const mapa = new Map();
+    linhas.forEach((linha) => {
+      const id = String(linha[chave] || "—");
+      if (!mapa.has(id)) mapa.set(id, { chave: id, valor: 0, quantidade: 0, rotulo: linha[campo] || id });
+      const grupo = mapa.get(id);
+      grupo.valor += linha.valor;
+      grupo.quantidade += linha.quantidade;
+    });
+    return [...mapa.values()];
+  }
+
+  function barrasBi(itens, formato) {
+    if (!itens.length) return '<p class="empty">Sem faturamento neste período.</p>';
+    const topo = itens[0][formato === "qtd" ? "quantidade" : "valor"] || 1;
+    return itens.slice(0, 8).map((item) => {
+      const medida = formato === "qtd" ? item.quantidade : item.valor;
+      const largura = Math.max(4, Math.round((medida / (topo || 1)) * 100));
+      const texto = formato === "qtd"
+        ? `${item.quantidade.toLocaleString("pt-BR")} un`
+        : `${money(item.valor)}${formato === "pct" ? ` · ${item.pct}%` : ""}`;
+      return `<button type="button" class="bi-bar" data-action="bi-drill" data-kind="${escapeHtml(item.kind)}" data-key="${escapeHtml(item.chave)}"><span class="bi-bar-rotulo">${escapeHtml(item.rotulo)}</span><span class="bi-bar-valor">${escapeHtml(texto)}</span><span class="bi-bar-trilho"><span class="bi-bar-fill" style="width:${largura}%"></span></span></button>`;
+    }).join("");
+  }
+
+  function renderPainelBi() {
+    const grid = document.getElementById("bi-grid");
+    if (!grid) return;
+    document.querySelectorAll("[data-action='bi-periodo']").forEach((button) => {
+      button.setAttribute("aria-selected", String(button.dataset.periodo === state.biPeriodo));
+    });
+    const linhas = linhasFaturadas();
+    const total = linhas.reduce((soma, linha) => soma + linha.valor, 0) || 1;
+    const porProduto = agrupar(linhas, "produto", "produto")
+      .map((item) => ({ ...item, kind: "produto" }))
+      .sort((a, b) => b.valor - a.valor);
+    const porVolume = [...porProduto].sort((a, b) => b.quantidade - a.quantidade);
+    const porUf = agrupar(linhas, "uf", "uf")
+      .map((item) => ({ ...item, kind: "uf" }))
+      .sort((a, b) => b.valor - a.valor);
+    const porCliente = agrupar(linhas, "clienteId", "cliente")
+      .map((item) => ({ ...item, kind: "cliente", pct: Math.round((item.valor / total) * 1000) / 10 }))
+      .sort((a, b) => b.valor - a.valor);
+    state.biCache = { linhas, porProduto, porVolume, porUf, porCliente };
+    grid.innerHTML = [
+      ["Faturamento por produto", barrasBi(porProduto, "valor")],
+      ["Volume de fabricação", barrasBi(porVolume, "qtd")],
+      ["Regiões / estados", barrasBi(porUf, "valor")],
+      ["Maiores clientes", barrasBi(porCliente, "pct")]
+    ].map(([titulo, corpo]) => `<article class="bi-card"><h3>${titulo}</h3>${corpo}</article>`).join("");
+  }
+
+  function pedidosDoCliente(linha) {
+    const client = state.clients.find((item) => item.id === linha.clienteId);
+    if (!client) return linha.pedido || "—";
+    const nomes = String(linha.produto || "").toLowerCase();
+    const codigos = (client.pedidos || [])
+      .filter((pedido) => pedido.data === linha.data && (!nomes || String(pedido.item || "").toLowerCase().includes(nomes.slice(0, 24))))
+      .map((pedido) => pedido.codigo);
+    if (codigos.length) return codigos.join(", ");
+    const mesmoDia = (client.pedidos || []).filter((pedido) => pedido.data === linha.data).map((pedido) => pedido.codigo);
+    return mesmoDia.join(", ") || linha.pedido || "—";
+  }
+
+  function abrirDrillBi(kind, key) {
+    const dialog = document.getElementById("dialog-bi");
+    const titulo = document.getElementById("bi-dialog-titulo");
+    const corpo = document.getElementById("bi-dialog-corpo");
+    if (!dialog || !state.biCache) return;
+    const linhas = state.biCache.linhas.filter((linha) => {
+      if (kind === "produto") return linha.produto === key;
+      if (kind === "uf") return linha.uf === key;
+      return linha.clienteId === key;
+    });
+    const rotulo = kind === "cliente"
+      ? (linhas[0] && linhas[0].cliente) || key
+      : key;
+    titulo.textContent = rotulo;
+    if (kind === "uf") {
+      const clientes = new Map();
+      linhas.forEach((linha) => {
+        if (!clientes.has(linha.clienteId)) clientes.set(linha.clienteId, { nome: linha.cliente, produtos: new Map() });
+        const grupo = clientes.get(linha.clienteId).produtos;
+        grupo.set(linha.produto, (grupo.get(linha.produto) || 0) + linha.valor);
+      });
+      corpo.innerHTML = `<table class="bi-tabela"><thead><tr><th>Cliente</th><th>Produtos</th><th>Valor</th></tr></thead><tbody>${[...clientes.values()].map((cliente) => {
+        const produtos = [...cliente.produtos.entries()].map(([nome, valor]) => `${escapeHtml(nome)} (${escapeHtml(money(valor))})`).join("<br>");
+        const total = [...cliente.produtos.values()].reduce((soma, valor) => soma + valor, 0);
+        return `<tr><td>${escapeHtml(cliente.nome)}</td><td>${produtos}</td><td>${escapeHtml(money(total))}</td></tr>`;
+      }).join("")}</tbody></table>`;
+    } else if (kind === "cliente") {
+      const mix = agrupar(linhas, "produto", "produto").sort((a, b) => b.valor - a.valor);
+      corpo.innerHTML = `<table class="bi-tabela"><thead><tr><th>Produto</th><th>Quantidade</th><th>Valor</th></tr></thead><tbody>${mix.map((item) => `<tr><td>${escapeHtml(item.rotulo)}</td><td>${item.quantidade.toLocaleString("pt-BR")}</td><td>${escapeHtml(money(item.valor))}</td></tr>`).join("")}</tbody></table>`;
+    } else {
+      corpo.innerHTML = `<table class="bi-tabela"><thead><tr><th>Cliente</th><th>Quantidade</th><th>Valor</th><th>Pedidos</th></tr></thead><tbody>${linhas.map((linha) => `<tr><td>${escapeHtml(linha.cliente)}</td><td>${linha.quantidade.toLocaleString("pt-BR")}</td><td>${escapeHtml(money(linha.valor))}</td><td>${escapeHtml(pedidosDoCliente(linha))}</td></tr>`).join("")}</tbody></table>`;
+    }
+    if (typeof dialog.showModal === "function") dialog.showModal();
+  }
+
   function renderProducts() {
     const consulta = fold(state.productQuery);
     const linha = state.productLine;
@@ -886,7 +1067,10 @@
     document.getElementById("view-clients").hidden = view !== "clients";
     const titulos = { dashboard: "Dashboard", products: "Produtos", atividades: "Atividades", clients: "Carteira de clientes" };
     document.getElementById("page-title").textContent = titulos[view] || "Dashboard";
-    if (view === "products") renderProducts();
+    if (view === "products") {
+      renderPainelBi();
+      renderProducts();
+    }
     if (view === "atividades") carregarAtividades();
     document.querySelectorAll("[data-action='show-view']").forEach((button) => {
       if (button.dataset.view === view) button.setAttribute("aria-current", "page");
@@ -1241,7 +1425,8 @@
     state.products = produtosArquivo && produtosArquivo.length ? produtosArquivo : (mock.produtos || []).map(normalizarProduto);
     state.produtosFonte = produtosArquivo && produtosArquivo.length ? "arquivo" : "simulada";
     const ids = new Set(base.map((client) => client.id));
-    const comPrecos = distribuirPrecos(base, payload && payload.historico_precos);
+    state.historicoPrecos = payload && Array.isArray(payload.historico_precos) ? payload.historico_precos : [];
+    const comPrecos = distribuirPrecos(base, state.historicoPrecos);
     state.clients = aplicarEdicoes(clientesManuais(ids).concat(comPrecos));
     writeStorage(CLIENTS_KEY, state.clients);
   }
@@ -1256,6 +1441,7 @@
       state.products = (mock.produtos || []).map(normalizarProduto);
       state.carteiraFonte = "simulada";
       state.produtosFonte = "simulada";
+      state.historicoPrecos = [];
     }
     showScreen("app");
     showView("dashboard");
@@ -1574,6 +1760,11 @@
     if (action === "toggle-password") togglePassword(element);
     if (action === "auth-tab") setAuthTab(element.dataset.tab);
     if (action === "show-view") showView(element.dataset.view);
+    if (action === "bi-periodo") {
+      state.biPeriodo = element.dataset.periodo || "12m";
+      renderPainelBi();
+    }
+    if (action === "bi-drill") abrirDrillBi(element.dataset.kind, element.dataset.key);
     if (action === "filter-products") {
       state.productLine = element.dataset.line || "todos";
       renderProducts();
@@ -1862,6 +2053,14 @@
       renderProducts();
     });
   }
+  ["bi-inicio", "bi-fim"].forEach((id) => {
+    const campo = document.getElementById(id);
+    if (!campo) return;
+    campo.addEventListener("change", () => {
+      state.biPeriodo = "custom";
+      renderPainelBi();
+    });
+  });
 
   const searchInput = document.getElementById("quick-search-input");
   searchInput.addEventListener("input", scheduleSearch);
