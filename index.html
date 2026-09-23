@@ -133,6 +133,17 @@
           </svg>
           Produtos
         </button>
+        <button type="button" class="nav-btn" data-action="show-view" data-view="atividades">
+          <svg class="icon" viewBox="0 0 24 24" aria-hidden="true">
+            <path d="M9 6h11"></path>
+            <path d="M9 12h11"></path>
+            <path d="M9 18h11"></path>
+            <path d="M4 6h.01"></path>
+            <path d="M4 12h.01"></path>
+            <path d="M4 18h.01"></path>
+          </svg>
+          Atividades
+        </button>
         <button type="button" class="nav-btn" data-action="show-view" data-view="clients">
           <svg class="icon" viewBox="0 0 24 24" aria-hidden="true">
             <path d="M16 19v-1a4 4 0 0 0-4-4H7a4 4 0 0 0-4 4v1"></path>
@@ -236,6 +247,36 @@
           </div>
           <div id="product-list" class="product-list"></div>
           <p id="produtos-fonte" class="footnote"></p>
+        </section>
+
+        <section id="view-atividades" class="view" hidden>
+          <div class="atividades-header">
+            <h2>Atividades</h2>
+            <div class="atividades-summary">Total de Clientes: <span id="total-clientes-atividades">0</span></div>
+            <div class="atividades-filters">
+              <button type="button" class="btn-filter active" data-action="filter-atividades" data-filter="todos">Todos</button>
+              <button type="button" class="btn-filter" data-action="filter-atividades" data-filter="15d">Sem contato &gt; 15 dias</button>
+              <button type="button" class="btn-filter" data-action="filter-atividades" data-filter="30d">Sem contato &gt; 30 dias</button>
+            </div>
+          </div>
+          <div class="atividades-content">
+            <div id="atividades-form-container" class="card-inline-form" hidden></div>
+            <div class="table-responsive">
+              <table class="data-table" id="tabela-atividades">
+                <thead>
+                  <tr>
+                    <th>Cliente</th>
+                    <th>Cidade/UF</th>
+                    <th>Contato</th>
+                    <th>Último Contato</th>
+                    <th>Status</th>
+                    <th>Ações</th>
+                  </tr>
+                </thead>
+                <tbody id="lista-atividades-tbody"></tbody>
+              </table>
+            </div>
+          </div>
         </section>
 
         <section id="view-clients" aria-label="Carteira de clientes" hidden>

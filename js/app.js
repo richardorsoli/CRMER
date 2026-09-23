@@ -45,7 +45,10 @@
     productLine: "todos",
     productQuery: "",
     searchIndex: -1,
-    searchTimer: 0
+    searchTimer: 0,
+    atividades: [],
+    atividadesFiltro: "todos",
+    atividadeClienteId: null
   };
 
   const brl = new Intl.NumberFormat("pt-BR", { style: "currency", currency: "BRL" });
@@ -691,15 +694,145 @@
     state.view = view;
     document.getElementById("view-dashboard").hidden = view !== "dashboard";
     document.getElementById("view-products").hidden = view !== "products";
+    document.getElementById("view-atividades").hidden = view !== "atividades";
     document.getElementById("view-clients").hidden = view !== "clients";
-    const titulos = { dashboard: "Dashboard", products: "Produtos", clients: "Carteira de clientes" };
+    const titulos = { dashboard: "Dashboard", products: "Produtos", atividades: "Atividades", clients: "Carteira de clientes" };
     document.getElementById("page-title").textContent = titulos[view] || "Dashboard";
     if (view === "products") renderProducts();
+    if (view === "atividades") carregarAtividades();
     document.querySelectorAll("[data-action='show-view']").forEach((button) => {
       if (button.dataset.view === view) button.setAttribute("aria-current", "page");
       else button.removeAttribute("aria-current");
     });
     closeDrawer();
+  }
+
+  function dataValida(valor) {
+    const data = valor instanceof Date ? valor : new Date(valor);
+    return Number.isNaN(data.getTime()) ? null : data;
+  }
+
+  function maiorData(lista) {
+    let maior = null;
+    (lista || []).forEach((item) => {
+      if (item && maior === null) maior = item;
+      else if (item && item > maior) maior = item;
+    });
+    return maior;
+  }
+
+  function ultimoContatoCliente(client) {
+    const manuais = state.atividades
+      .filter((atividade) => String(atividade.nomusId) === String(client.nomusId || client.id))
+      .map((atividade) => dataValida(atividade.data || atividade.dataHora || atividade.createdAt));
+    const orcamentos = (client.orcamentos || []).map((orcamento) => dataValida(orcamento.data));
+    const pedidos = (client.pedidos || []).map((pedido) => dataValida(pedido.data));
+    return maiorData(manuais.concat(orcamentos, pedidos).filter(Boolean));
+  }
+
+  function resumoUltimoContato(data) {
+    if (!data) {
+      return { dias: null, texto: "Sem registro", classe: "badge badge-danger", status: "Sem contato" };
+    }
+    const iso = `${data.getFullYear()}-${String(data.getMonth() + 1).padStart(2, "0")}-${String(data.getDate()).padStart(2, "0")}`;
+    const dias = daysSince(iso);
+    if (dias <= 0) return { dias: 0, texto: "Hoje", classe: "badge", status: "Em dia" };
+    const classe = dias > 30 ? "badge badge-danger" : dias > 15 ? "badge badge-warning" : "badge";
+    const status = dias > 30 ? "Sem contato > 30 dias" : dias > 15 ? "Sem contato > 15 dias" : "Recente";
+    return { dias, texto: `Há ${dias} dias`, classe, status };
+  }
+
+  function passaFiltroAtividade(resumo) {
+    const filtro = state.atividadesFiltro;
+    if (filtro === "30d") return resumo.dias === null || resumo.dias > 30;
+    if (filtro === "15d") return resumo.dias === null || resumo.dias > 15;
+    return true;
+  }
+
+  async function carregarAtividades() {
+    try {
+      const resposta = await fetch("/api/atividades");
+      if (resposta.ok) {
+        const data = await resposta.json();
+        state.atividades = data || [];
+      }
+    } catch (erro) {
+      state.atividades = state.atividades || [];
+    }
+    renderAtividades();
+  }
+
+  function renderAtividades() {
+    const total = document.getElementById("total-clientes-atividades");
+    const corpo = document.getElementById("lista-atividades-tbody");
+    if (!corpo) return;
+    if (total) total.textContent = String(state.clients.length);
+    document.querySelectorAll("#view-atividades [data-filter]").forEach((botao) => {
+      botao.classList.toggle("active", botao.dataset.filter === state.atividadesFiltro);
+    });
+    const linhas = state.clients.map((client) => {
+      const resumo = resumoUltimoContato(ultimoContatoCliente(client));
+      return { client, resumo };
+    }).filter((item) => passaFiltroAtividade(item.resumo));
+    corpo.innerHTML = linhas.length
+      ? linhas.map(({ client, resumo }) => `<tr><td>${escapeHtml(client.razaoSocial)}</td><td>${escapeHtml(client.cidade || "—")}/${escapeHtml(client.uf || "—")}</td><td>${escapeHtml(client.contato || "—")}</td><td>${escapeHtml(resumo.texto)}</td><td><span class="${resumo.classe}">${escapeHtml(resumo.status)}</span></td><td><button type="button" class="btn btn-small" data-action="registrar-contato" data-id="${escapeHtml(client.id)}">+ Registrar Contato</button></td></tr>`).join("")
+      : '<tr><td colspan="6">Nenhum cliente neste filtro.</td></tr>';
+    renderFormularioAtividade();
+  }
+
+  function renderFormularioAtividade() {
+    const caixa = document.getElementById("atividades-form-container");
+    if (!caixa) return;
+    const client = state.atividadeClienteId ? getClient(state.atividadeClienteId) : null;
+    if (!client) {
+      caixa.hidden = true;
+      caixa.innerHTML = "";
+      return;
+    }
+    caixa.hidden = false;
+    caixa.innerHTML = `<form id="form-atividade" class="inline-atividade"><p class="eyebrow">Registrar contato · ${escapeHtml(client.razaoSocial)}</p><label>Canal<select name="canal" required><option value="WhatsApp">WhatsApp</option><option value="E-mail">E-mail</option><option value="Ligação">Ligação</option></select></label><label>Resultado<select name="resultado" required><option value="Sucesso">Sucesso</option><option value="Sem sucesso">Sem sucesso</option></select></label><label>Observação<textarea name="observacao" rows="3"></textarea></label><div class="form-actions"><button type="submit" class="btn btn-accent">Salvar contato</button><button type="button" class="btn" data-action="cancelar-contato">Cancelar</button></div><p id="atividade-feedback" class="footnote" hidden></p></form>`;
+  }
+
+  async function salvarAtividade(form) {
+    const client = getClient(state.atividadeClienteId);
+    if (!client) return;
+    const dados = new FormData(form);
+    const payload = {
+      nomusId: client.nomusId || client.id,
+      tipo: dados.get("canal"),
+      status: dados.get("resultado"),
+      observacao: String(dados.get("observacao") || "").trim(),
+      usuario: state.usuario || (state.session && state.session.nome) || "Natália"
+    };
+    const feedback = document.getElementById("atividade-feedback");
+    try {
+      const resposta = await fetch("/api/atividades", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload)
+      });
+      const corpo = await resposta.json().catch(() => ({}));
+      if (!resposta.ok || corpo.sucesso !== true) {
+        if (feedback) {
+          feedback.hidden = false;
+          feedback.textContent = "Não foi possível registrar o contato.";
+        }
+        return;
+      }
+      state.atividades.push({
+        ...payload,
+        data: TODAY,
+        createdAt: new Date().toISOString()
+      });
+      state.atividadeClienteId = null;
+      renderAtividades();
+      toast("Contato registrado.");
+    } catch (erro) {
+      if (feedback) {
+        feedback.hidden = false;
+        feedback.textContent = "Não foi possível registrar o contato.";
+      }
+    }
   }
 
   function showRanking(ranking) {
@@ -1261,6 +1394,18 @@
     if (action === "open-client") openClient(element.dataset.id);
     if (action === "close-drawer") closeDrawer();
     if (action === "logout") logout();
+    if (action === "filter-atividades") {
+      state.atividadesFiltro = element.dataset.filter || "todos";
+      renderAtividades();
+    }
+    if (action === "registrar-contato") {
+      state.atividadeClienteId = element.dataset.id;
+      renderFormularioAtividade();
+    }
+    if (action === "cancelar-contato") {
+      state.atividadeClienteId = null;
+      renderFormularioAtividade();
+    }
     if (action === "new-client") openCreate();
     if (action === "open-feedback") openFeedback();
     if (action === "close-feedback") closeFeedback();
@@ -1271,7 +1416,7 @@
   function onSubmit(event) {
     const form = event.target;
     if (!(form instanceof HTMLFormElement)) return;
-    if (!["form-login", "form-register", "form-notes", "form-create", "form-search", "form-product-search", "form-feedback"].includes(form.id)) return;
+    if (!["form-login", "form-register", "form-notes", "form-create", "form-search", "form-product-search", "form-feedback", "form-atividade"].includes(form.id)) return;
     event.preventDefault();
     if (form.id === "form-login") handleLogin(form);
     if (form.id === "form-register") handleRegister(form);
@@ -1279,6 +1424,7 @@
     if (form.id === "form-create") handleCreate(form);
     if (form.id === "form-search") openSearchResult();
     if (form.id === "form-feedback") handleFeedback(form);
+    if (form.id === "form-atividade") salvarAtividade(form);
   }
 
   function togglePassword(button) {
