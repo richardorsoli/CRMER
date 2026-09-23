@@ -1234,18 +1234,23 @@
     if (action === "close-drawer") closeDrawer();
     if (action === "logout") logout();
     if (action === "new-client") openCreate();
+    if (action === "open-feedback") openFeedback();
+    if (action === "close-feedback") closeFeedback();
+    if (action === "open-changelog") openChangelog();
+    if (action === "close-changelog") closeChangelog();
   }
 
   function onSubmit(event) {
     const form = event.target;
     if (!(form instanceof HTMLFormElement)) return;
-    if (!["form-login", "form-register", "form-notes", "form-create", "form-search", "form-product-search"].includes(form.id)) return;
+    if (!["form-login", "form-register", "form-notes", "form-create", "form-search", "form-product-search", "form-feedback"].includes(form.id)) return;
     event.preventDefault();
     if (form.id === "form-login") handleLogin(form);
     if (form.id === "form-register") handleRegister(form);
     if (form.id === "form-notes") handleNotes(form);
     if (form.id === "form-create") handleCreate(form);
     if (form.id === "form-search") openSearchResult();
+    if (form.id === "form-feedback") handleFeedback(form);
   }
 
   function togglePassword(button) {
@@ -1290,6 +1295,161 @@
     match.classList.toggle("is-ok", ok);
     match.classList.toggle("is-bad", !ok);
     confirmar.setAttribute("aria-invalid", String(!ok));
+  }
+
+  const SUGESTOES_KEY = "crmer.sugestoes";
+  const NOVIDADES_FALLBACK = [
+    {
+      versao: "1.4.0",
+      data: "23/09/2026",
+      solicitante: "Natália",
+      itens: [
+        "Local de entrega da obra na linha do pedido faturado.",
+        "Transportadora vinculada à NF-e do pedido.",
+        "Follow-ups de orçamento a partir dos processos de vendas."
+      ]
+    }
+  ];
+
+  function moduloAtual() {
+    if (state.drawerId) return "Ficha do Cliente";
+    if (state.view === "products") return "Produtos";
+    if (state.view === "dashboard") return "Dashboard";
+    return "Ficha do Cliente";
+  }
+
+  function openFeedback() {
+    if (!state.session) return;
+    const form = document.getElementById("form-feedback");
+    const erro = document.getElementById("feedback-error");
+    form.reset();
+    form.modulo.value = moduloAtual();
+    erro.hidden = true;
+    erro.textContent = "";
+    document.getElementById("dialog-feedback").showModal();
+  }
+
+  function closeFeedback() {
+    const dialog = document.getElementById("dialog-feedback");
+    if (dialog.open) dialog.close();
+  }
+
+  function autorAtivo() {
+    const nome = state.session && state.session.nome;
+    return String(nome || "Natália").trim() || "Natália";
+  }
+
+  function dataLocalCurta(iso) {
+    const momento = new Date(iso);
+    if (Number.isNaN(momento.getTime())) return "";
+    const parte = (valor) => String(valor).padStart(2, "0");
+    return `${momento.getFullYear()}-${parte(momento.getMonth() + 1)}-${parte(momento.getDate())} ${parte(momento.getHours())}:${parte(momento.getMinutes())}`;
+  }
+
+  function lerSugestoesLocais() {
+    const stored = readStorage(SUGESTOES_KEY);
+    return Array.isArray(stored) ? stored : [];
+  }
+
+  function baixarSugestao(item, carimbo) {
+    const blob = new Blob([JSON.stringify(item, null, 2) + "\n"], { type: "application/json" });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    link.href = url;
+    link.download = `sugestao_${carimbo}.json`;
+    document.body.appendChild(link);
+    link.click();
+    link.remove();
+    URL.revokeObjectURL(url);
+  }
+
+  function guardarSugestaoLocal(payload) {
+    const carimbo = Date.now();
+    const item = {
+      id: carimbo,
+      data: dataLocalCurta(payload.data),
+      autor: payload.autor,
+      modulo: payload.modulo,
+      tipo: payload.tipo,
+      descricao: payload.descricao,
+      prioridade: payload.prioridade,
+      status: "Pendente",
+      resposta_tecnica: ""
+    };
+    const lista = lerSugestoesLocais();
+    lista.push(item);
+    writeStorage(SUGESTOES_KEY, lista);
+    baixarSugestao(item, carimbo);
+    return item;
+  }
+
+  async function handleFeedback(form) {
+    const erro = document.getElementById("feedback-error");
+    const descricao = String(new FormData(form).get("descricao") || "").trim();
+    if (!descricao) {
+      erro.textContent = "Descreva o que precisa mudar na rotina.";
+      erro.hidden = false;
+      return;
+    }
+    const dados = new FormData(form);
+    const payload = {
+      modulo: String(dados.get("modulo") || "Outro"),
+      tipo: String(dados.get("tipo") || ""),
+      descricao,
+      prioridade: String(dados.get("prioridade") || "Média"),
+      data: new Date().toISOString(),
+      autor: autorAtivo()
+    };
+    erro.hidden = true;
+    let enviou = false;
+    try {
+      const controller = new AbortController();
+      const timer = window.setTimeout(() => controller.abort(), 4000);
+      const response = await fetch("/api/feedback", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Accept: "application/json" },
+        body: JSON.stringify(payload),
+        signal: controller.signal
+      });
+      window.clearTimeout(timer);
+      enviou = response.ok;
+    } catch (error) {
+      enviou = false;
+    }
+    if (!enviou) guardarSugestaoLocal(payload);
+    closeFeedback();
+    toast(enviou
+      ? "Sugestão registrada! O time técnico já foi notificado."
+      : "Sugestão registrada neste navegador. O arquivo da sugestão foi baixado para o time técnico.");
+  }
+
+  function releaseCard(nota) {
+    const versao = String(nota.versao || "");
+    const atual = versao.startsWith("1.4");
+    const itens = Array.isArray(nota.itens) ? nota.itens : [];
+    return `<article class="release-card${atual ? " is-current" : ""}"><h3>v${escapeHtml(versao)} · ${escapeHtml(nota.data || "")}</h3><p class="release-meta">Solicitado por ${escapeHtml(nota.solicitante || "Natália")}</p><ul>${itens.map((item) => `<li>${escapeHtml(item)}</li>`).join("")}</ul></article>`;
+  }
+
+  async function openChangelog() {
+    const lista = document.getElementById("changelog-list");
+    lista.innerHTML = "<p class=\"release-meta\">Carregando o histórico…</p>";
+    document.getElementById("dialog-changelog").showModal();
+    let notas = NOVIDADES_FALLBACK;
+    try {
+      const response = await fetch("novidades.json", { cache: "no-store" });
+      if (response.ok) {
+        const dados = await response.json();
+        if (Array.isArray(dados) && dados.length) notas = dados;
+      }
+    } catch (error) {
+      notas = NOVIDADES_FALLBACK;
+    }
+    lista.innerHTML = notas.map(releaseCard).join("");
+  }
+
+  function closeChangelog() {
+    const dialog = document.getElementById("dialog-changelog");
+    if (dialog.open) dialog.close();
   }
 
   const registerForm = document.getElementById("form-register");

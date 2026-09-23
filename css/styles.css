@@ -494,6 +494,16 @@ textarea {
   border-color: rgba(255, 255, 255, 0.08);
 }
 
+.sidebar-actions {
+  display: grid;
+  gap: 6px;
+}
+
+.sidebar-actions .nav-btn {
+  border-color: rgba(255, 255, 255, 0.14);
+  font-size: 14px;
+}
+
 .sidebar-foot {
   display: grid;
   gap: 10px;
@@ -1207,6 +1217,84 @@ textarea {
   background: linear-gradient(180deg, rgba(255, 255, 255, 0), white 30%);
 }
 
+.feedback-dialog {
+  display: flex;
+  flex-direction: column;
+  width: min(560px, calc(100% - 32px));
+  max-height: min(640px, calc(100vh - 48px));
+  margin: auto;
+  padding: 20px 22px 16px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  color: var(--ink);
+  background: var(--surface);
+  box-shadow: var(--shadow);
+  overflow: hidden;
+}
+
+.feedback-dialog::backdrop {
+  background: rgba(14, 36, 56, 0.48);
+}
+
+.feedback-dialog form,
+.changelog-list {
+  display: grid;
+  gap: 12px;
+  min-height: 0;
+  overflow: auto;
+}
+
+.changelog-list {
+  flex: 1 1 auto;
+  padding-right: 4px;
+}
+
+.feedback-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 12px;
+  margin-bottom: 8px;
+}
+
+.feedback-header h2 {
+  font-size: 22px;
+  letter-spacing: -0.03em;
+}
+
+.feedback-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
+.release-card {
+  padding: 12px 14px;
+  border: 1px solid var(--line);
+  border-left: 3px solid var(--navy);
+  border-radius: 10px;
+  background: #f7f9fb;
+}
+
+.release-card.is-current {
+  border-left-color: var(--copper);
+  background: var(--copper-soft);
+}
+
+.release-card h3 {
+  font-size: 16px;
+}
+
+.release-card ul {
+  margin: 8px 0 0;
+  padding-left: 18px;
+}
+
+.release-meta {
+  color: var(--muted);
+  font-size: 13px;
+}
+
 .toast {
   position: fixed;
   left: 50%;
@@ -1295,6 +1383,16 @@ body.drawer-open {
     display: flex;
     align-items: center;
     gap: 8px;
+  }
+
+  .sidebar-actions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+  }
+
+  .sidebar-actions .nav-btn {
+    width: auto;
   }
 
   .profile-text span {

@@ -153,6 +153,10 @@
             <small id="session-email"></small>
           </span>
         </div>
+        <div class="sidebar-actions">
+          <button type="button" class="nav-btn" data-action="open-feedback">💡 Sugerir Melhoria</button>
+          <button type="button" class="nav-btn" data-action="open-changelog">🚀 O que mudou?</button>
+        </div>
         <button type="button" class="btn-logout" data-action="logout">
           <svg class="icon" viewBox="0 0 24 24" aria-hidden="true">
             <path d="M9 6H6a2 2 0 0 0-2 2v8a2 2 0 0 0 2 2h3"></path>
@@ -282,6 +286,71 @@
       </aside>
     </div>
   </div>
+
+  <dialog id="dialog-feedback" class="feedback-dialog" aria-labelledby="feedback-title">
+    <form id="form-feedback" method="dialog">
+      <header class="feedback-header">
+        <div>
+          <p class="eyebrow">Uso do dia</p>
+          <h2 id="feedback-title">Sugerir Melhoria</h2>
+        </div>
+        <button type="button" class="icon-btn" data-action="close-feedback" aria-label="Fechar sugestão">
+          <svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18"></path></svg>
+        </button>
+      </header>
+      <p id="feedback-error" class="form-feedback" role="alert" hidden></p>
+      <label>
+        Módulo / Tela
+        <select name="modulo" required>
+          <option value="Ficha do Cliente">Ficha do Cliente</option>
+          <option value="Histórico de Pedidos/NF">Histórico de Pedidos/NF</option>
+          <option value="Produtos">Produtos</option>
+          <option value="Dashboard">Dashboard</option>
+          <option value="Outro">Outro</option>
+        </select>
+      </label>
+      <label>
+        Tipo
+        <select name="tipo" required>
+          <option value="Sugestão de funcionalidade">Sugestão de funcionalidade</option>
+          <option value="Ajuste visual/usabilidade">Ajuste visual/usabilidade</option>
+          <option value="Inconsistência de dado">Inconsistência de dado</option>
+        </select>
+      </label>
+      <label>
+        Descrição
+        <textarea name="descricao" rows="5" required placeholder="O que travou ou o que ajudaria na rotina da obra"></textarea>
+      </label>
+      <label>
+        Prioridade percebida
+        <select name="prioridade" required>
+          <option value="Baixa">Baixa</option>
+          <option value="Média" selected>Média</option>
+          <option value="Alta">Alta (Trava meu trabalho)</option>
+        </select>
+      </label>
+      <div class="form-actions feedback-actions">
+        <button type="button" class="btn" data-action="close-feedback">Cancelar</button>
+        <button type="submit" class="btn btn-primary">Registrar sugestão</button>
+      </div>
+    </form>
+  </dialog>
+
+  <dialog id="dialog-changelog" class="feedback-dialog" aria-labelledby="changelog-title">
+    <header class="feedback-header">
+      <div>
+        <p class="eyebrow">Histórico de melhorias</p>
+        <h2 id="changelog-title">O que mudou?</h2>
+      </div>
+      <button type="button" class="icon-btn" data-action="close-changelog" aria-label="Fechar histórico">
+        <svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18"></path></svg>
+      </button>
+    </header>
+    <div id="changelog-list" class="changelog-list"></div>
+    <div class="form-actions feedback-actions">
+      <button type="button" class="btn btn-primary" data-action="close-changelog">Fechar</button>
+    </div>
+  </dialog>
 
   <div id="toast" class="toast" role="status" aria-live="polite" hidden></div>
   <script src="js/mock-data.js"></script>
