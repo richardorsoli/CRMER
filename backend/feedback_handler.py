@@ -7,7 +7,7 @@ import json
 import os
 import re
 import uuid
-from datetime import timedelta, timezone
+from datetime import datetime, timedelta, timezone
 from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from typing import Any
@@ -149,6 +149,82 @@ def carregar_atividades() -> list[dict[str, Any]]:
         return []
 
 
+ETAPAS_FUNIL = {"orcamentos", "negociacoes", "producao", "perdido"}
+
+
+def _bate_proposta(item: dict[str, Any], alvo: str) -> bool:
+    for campo in ("id_proposta", "numero_proposta"):
+        valor = item.get(campo)
+        if valor not in (None, "") and str(valor).strip() == alvo:
+            return True
+    return False
+
+
+def atualizar_status_proposta(payload: Any) -> dict[str, Any]:
+    """Grava etapa_kanban ou a perda indexada ao proposta_id, sem mexer em etapa_vendas."""
+    if not isinstance(payload, dict):
+        raise FeedbackError("O corpo da requisição precisa ser um objeto JSON.")
+    proposta_id = payload.get("proposta_id")
+    if proposta_id in (None, ""):
+        raise FeedbackError("O campo 'proposta_id' é obrigatório.")
+    alvo = str(proposta_id).strip()
+    if not alvo:
+        raise FeedbackError("O campo 'proposta_id' é obrigatório.")
+
+    etapa = str(payload.get("etapa_kanban") or "").strip()
+    if etapa and etapa not in ETAPAS_FUNIL:
+        raise FeedbackError("Etapa de funil inválida.")
+    motivo = str(payload.get("motivo") or "").strip()
+    if etapa == "perdido" and not motivo:
+        raise FeedbackError("O motivo da perda é obrigatório.")
+
+    if not CAMINHO_DADOS.exists():
+        raise FeedbackError("Arquivo dados_ehe.json não encontrado.")
+
+    with open(CAMINHO_DADOS, "r", encoding="utf-8") as arquivo:
+        dados = json.load(arquivo)
+    if not isinstance(dados, dict) or not isinstance(dados.get("clientes"), list):
+        raise FeedbackError("A base local não tem a lista de clientes.")
+
+    orcamento = None
+    for cliente in dados["clientes"]:
+        if not isinstance(cliente, dict):
+            continue
+        for item in cliente.get("orcamentos") or []:
+            if isinstance(item, dict) and _bate_proposta(item, alvo):
+                orcamento = item
+                break
+        if orcamento:
+            break
+    if not orcamento:
+        raise FeedbackError("Proposta não encontrada na base local.")
+
+    if etapa and etapa != "perdido":
+        orcamento["etapa_kanban"] = etapa
+    if etapa == "perdido" or motivo:
+        orcamento["status_orcamento"] = "Perdido"
+        registro = {
+            "proposta_id": alvo,
+            "categoria": str(payload.get("categoria") or "").strip(),
+            "motivo": motivo,
+            "observacao": str(payload.get("observacao") or "").strip(),
+            "data": agora_brasilia(),
+        }
+        perdas = dados.get("perdas_por_proposta")
+        if not isinstance(perdas, dict):
+            perdas = {}
+            dados["perdas_por_proposta"] = perdas
+        perdas[alvo] = registro
+
+    with open(CAMINHO_DADOS, "w", encoding="utf-8") as arquivo:
+        json.dump(dados, arquivo, ensure_ascii=False, indent=2)
+    return {
+        "proposta_id": alvo,
+        "etapa_kanban": orcamento.get("etapa_kanban") or "",
+        "status_orcamento": orcamento.get("status_orcamento") or "",
+    }
+
+
 def registrar_atividade(payload: Any) -> dict[str, Any]:
     item = validar_atividade(payload)
     PASTA_OUTPUT.mkdir(parents=True, exist_ok=True)
@@ -259,6 +335,14 @@ class FeedbackHandler(SimpleHTTPRequestHandler):
                 with open(CAMINHO_DADOS, "w", encoding="utf-8") as f:
                     json.dump(dados, f, ensure_ascii=False, indent=2)
                 self._json(200, {"sucesso": True, "contatos": cliente["contatos"]})
+            except FeedbackError as exc:
+                self._json(400, {"erro": str(exc)})
+            return
+
+        if caminho == "/api/propostas/status":
+            try:
+                item = atualizar_status_proposta(payload)
+                self._json(200, {"sucesso": True, "proposta": item})
             except FeedbackError as exc:
                 self._json(400, {"erro": str(exc)})
             return
@@ -436,7 +520,7 @@ def main(argv: list[str] | None = None) -> int:
     argumentos = construir_parser().parse_args(argv)
     servidor = ThreadingHTTPServer((argumentos.host, argumentos.porta), FeedbackHandler)
     print(f"CRMER no ar em http://localhost:{argumentos.porta}/ (rede: 0.0.0.0)", flush=True)
-    print("Endpoints ativos: POST /api/feedback | POST /api/clientes | POST /api/clientes/contatos | PUT /api/clientes/<id> | GET/POST /api/atividades", flush=True)
+    print("Endpoints ativos: POST /api/feedback | POST /api/clientes | POST /api/clientes/contatos | POST /api/propostas/status | PUT /api/clientes/<id> | GET/POST /api/atividades", flush=True)
     try:
         servidor.serve_forever()
     except KeyboardInterrupt:

@@ -823,6 +823,18 @@ textarea {
   font-weight: 700;
 }
 
+.badge-proposta {
+  display: inline-flex;
+  margin-top: 6px;
+  border-radius: 999px;
+  padding: 2px 8px;
+  background: #eef1f4;
+  color: #3e4c5a;
+  font-size: 12px;
+  font-weight: 700;
+  cursor: help;
+}
+
 .kanban-valor {
   margin: 4px 0 0;
   font-weight: 700;

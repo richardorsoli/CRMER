@@ -201,45 +201,90 @@
     ].join("");
   }
 
+  function idProposta(quote, client, index) {
+    const bruto = quote.id_proposta ?? quote.numero_proposta ?? `${client.id}-${index}`;
+    return String(bruto);
+  }
+
   function garantirFunil() {
     if (state.funilPronto) return;
     const etapas = ["orcamentos", "negociacoes", "producao"];
-    state.funil = openQuotes().map(({ client, quote }, index) => ({
-      id: String(quote.codigo || `${client.id}-${index}`),
-      clienteId: client.id,
-      cliente: client.razaoSocial,
-      valor: Number(quote.valor) || 0,
-      data: quote.data || TODAY,
-      etapa: etapas[index % etapas.length]
-    }));
+    state.funil = openQuotes()
+      .filter(({ quote }) => quote.status_orcamento !== "Perdido")
+      .map(({ client, quote }, index) => {
+        const propostaId = idProposta(quote, client, index);
+        const etapaKanban = quote.etapa_kanban;
+        return {
+          id: propostaId,
+          proposta_id: propostaId,
+          numero_proposta: quote.numero_proposta ?? quote.id_proposta ?? propostaId,
+          descricao_resumo: quote.descricao_resumo || "",
+          clienteId: client.id,
+          cliente: client.razaoSocial,
+          valor: Number(quote.valor) || 0,
+          data: quote.data || TODAY,
+          etapa_kanban: FUNIL_ETAPAS.includes(etapaKanban) ? etapaKanban : etapas[index % etapas.length]
+        };
+      });
     state.funilPronto = true;
+  }
+
+  function enviarStatusProposta(propostaId, extra) {
+    if (propostaId == null || propostaId === "") return;
+    fetch("/api/propostas/status", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(Object.assign({ proposta_id: propostaId }, extra || {}))
+    }).catch(() => {});
   }
 
   function moverEtapa(id, destino) {
     const card = state.funil.find((item) => item.id === id);
-    if (!card || !FUNIL_ETAPAS.includes(destino)) return;
-    card.etapa = destino;
+    if (!card || !FUNIL_ETAPAS.includes(destino) || card.etapa_kanban === destino) return;
+    card.etapa_kanban = destino;
+    enviarStatusProposta(card.proposta_id, { etapa_kanban: destino });
     renderFunil();
   }
 
   function deslocarEtapa(id, sentido) {
     const card = state.funil.find((item) => item.id === id);
-    if (!card) return;
-    const indice = FUNIL_ETAPAS.indexOf(card.etapa);
+    if (!card) return null;
+    const indice = FUNIL_ETAPAS.indexOf(card.etapa_kanban);
     const proximo = FUNIL_ETAPAS[indice + sentido];
-    if (!proximo) return;
-    card.etapa = proximo;
+    if (!proximo) return null;
+    card.etapa_kanban = proximo;
     renderFunil();
+    return proximo;
+  }
+
+  function avancarEtapa(id) {
+    const card = state.funil.find((item) => item.id === id);
+    const etapaKanban = deslocarEtapa(id, 1);
+    if (!card || !etapaKanban) return;
+    enviarStatusProposta(card.proposta_id, { etapa_kanban: etapaKanban });
+  }
+
+  function voltarEtapa(id) {
+    const card = state.funil.find((item) => item.id === id);
+    const etapaKanban = deslocarEtapa(id, -1);
+    if (!card || !etapaKanban) return;
+    enviarStatusProposta(card.proposta_id, { etapa_kanban: etapaKanban });
+  }
+
+  function marcarPerda(propostaId, detalhe) {
+    enviarStatusProposta(propostaId, Object.assign({ etapa_kanban: "perdido" }, detalhe || {}));
   }
 
   function cardFunilHtml(card) {
-    return `<article class="kanban-card" draggable="true" data-processo-id="${escapeHtml(card.id)}"><p class="kanban-cliente">${escapeHtml(card.cliente)}</p><p class="kanban-valor">${money(card.valor)}</p><p class="kanban-data">${escapeHtml(formatDate(card.data))}</p><div class="kanban-actions"><button type="button" class="btn btn-small" data-action="avancar-etapa" data-id="${escapeHtml(card.id)}">Avançar Etapa</button><button type="button" class="btn btn-small" data-action="voltar-etapa" data-id="${escapeHtml(card.id)}">Voltar Etapa</button><button type="button" class="btn btn-small" data-action="marcar-perdido" data-id="${escapeHtml(card.id)}">Marcar como Perdido</button></div></article>`;
+    const numero = escapeHtml(card.numero_proposta);
+    const resumo = escapeHtml(card.descricao_resumo);
+    return `<article class="kanban-card" draggable="true" title="${resumo}" data-processo-id="${escapeHtml(card.id)}" data-proposta-id="${escapeHtml(card.proposta_id)}"><p class="kanban-cliente">${escapeHtml(card.cliente)}</p><span class="badge-proposta" title="${resumo}">Proposta #${numero}</span><p class="kanban-valor">${money(card.valor)}</p><p class="kanban-data">${escapeHtml(formatDate(card.data))}</p><div class="kanban-actions"><button type="button" class="btn btn-small" data-action="avancar-etapa" data-id="${escapeHtml(card.id)}">Avançar Etapa</button><button type="button" class="btn btn-small" data-action="voltar-etapa" data-id="${escapeHtml(card.id)}">Voltar Etapa</button><button type="button" class="btn btn-small" data-action="marcar-perdido" data-id="${escapeHtml(card.id)}">Marcar como Perdido</button></div></article>`;
   }
 
   function renderFunil() {
     garantirFunil();
     FUNIL_ETAPAS.forEach((etapa) => {
-      const cards = state.funil.filter((item) => item.etapa === etapa);
+      const cards = state.funil.filter((item) => item.etapa_kanban === etapa);
       const total = cards.reduce((soma, item) => soma + item.valor, 0);
       const lista = document.querySelector(`[data-funil-lista="${etapa}"]`);
       const meta = document.querySelector(`[data-funil-meta="${etapa}"]`);
@@ -316,13 +361,20 @@
     const card = state.funil.find((item) => item.id === id);
     if (!card || !PERDA_MOTIVOS[categoria] || !motivo) return;
     state.funil = state.funil.filter((item) => item.id !== id);
-    state.perdas.push({
+    const registro = {
       id: card.id,
+      proposta_id: card.proposta_id,
       cliente: card.cliente,
       valor: card.valor,
       categoria,
       motivo,
       observacao: form.observacao.value.trim()
+    };
+    state.perdas.push(registro);
+    marcarPerda(card.proposta_id, {
+      categoria,
+      motivo,
+      observacao: registro.observacao
     });
     fecharPerda();
     renderFunil();
@@ -1997,8 +2049,8 @@
     if (action === "close-feedback") closeFeedback();
     if (action === "open-changelog") openChangelog();
     if (action === "close-changelog") closeChangelog();
-    if (action === "avancar-etapa") deslocarEtapa(element.dataset.id, 1);
-    if (action === "voltar-etapa") deslocarEtapa(element.dataset.id, -1);
+    if (action === "avancar-etapa") avancarEtapa(element.dataset.id);
+    if (action === "voltar-etapa") voltarEtapa(element.dataset.id);
     if (action === "marcar-perdido") abrirPerda(element.dataset.id);
     if (action === "cancelar-perda") fecharPerda();
   }
