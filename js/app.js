@@ -379,20 +379,25 @@
     const quoteBlock = quotes.length
       ? `<section><h3>${quotes.length > 1 ? "Orçamentos enviados sem retorno" : "Orçamento enviado sem retorno"}</h3><ul class="quote-block">${quotes.map((quote) => {
         const wait = esperaOrcamento(quote.data);
-        return `<li class="quote-line"><span><strong>${escapeHtml(quote.item)}</strong><span class="meta">${escapeHtml(quote.codigo)} · ${formatDate(quote.data)} · ${wait}</span></span><strong class="money">${money(quote.valor)}</strong></li>`;
+        return `<li class="quote-line"><span><strong>${escapeHtml(quote.item)}</strong><span class="meta">${escapeHtml(quote.codigo)} · ${formatDate(quote.data)} ·${wait}</span></span><strong class="money">${money(quote.valor)}</strong></li>`;
       }).join("")}</ul></section>`
       : "";
 
     const orders = client.pedidos.length
       ? `<ul class="orders">${client.pedidos.map((order) => {
         const condicao = order.condicaoPagamento ? `<span class="meta">Condição: ${escapeHtml(order.condicaoPagamento)}</span>` : "";
-        return `<li class="order-row"><span><strong>${escapeHtml(order.item)}</strong><span class="meta">${escapeHtml(order.codigo)} · ${formatDate(order.data)} · ${order.quantidade} un. · Nomus</span>${condicao}${blocoNfe(order)}</span><strong class="money">${money(order.valor)}</strong></li>`;
+        return `<li class="order-row"><span><strong>${escapeHtml(order.item)}</strong><span class="meta">${escapeHtml(order.codigo)} · ${formatDate(order.data)} ·${order.quantidade} un. · Nomus</span>${condicao}${blocoNfe(order)}</span><strong class="money">${money(order.valor)}</strong></li>`;
       }).join("")}</ul>`
       : '<p class="empty">Nenhum pedido recente retornado pelo Nomus para esta ficha.</p>';
 
     return `
-      <p class="drawer-lead">${escapeHtml(client.resumo)}</p>
-      <dl class="details">
+      <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:12px;">
+        <p class="drawer-lead" style="margin:0;">${escapeHtml(client.resumo)}</p>
+        <button type="button" id="btn-toggle-edit" class="btn btn-secondary" style="font-size:12px; padding:4px 8px;" onclick="window.alternarEdicaoCliente()">✏️ Editar contato</button>
+      </div>
+
+      <!-- MODO LEITURA -->
+      <dl class="details" id="drawer-view-mode">
         ${detail("Nome fantasia", escapeHtml(client.nomeFantasia || "Não informado"))}
         ${detail("CNPJ", escapeHtml(client.cnpj || "Não informado"))}
         ${detail("Tipo", escapeHtml(client.tipo))}
@@ -406,6 +411,29 @@
         ${detail("Última compra", client.ultimaCompra ? formatDate(client.ultimaCompra) : "Sem compra registrada")}
         ${detail("Linhas", `<div class="chips">${chips(client.linhas)}</div>`, true)}
       </dl>
+
+      <!-- MODO EDIÇÃO -->
+      <form id="drawer-edit-mode" style="display:none; background:rgba(255,255,255,0.03); padding:12px; border-radius:8px; border:1px solid #333; margin-bottom:16px;" onsubmit="window.salvarEdicaoCliente(event)">
+        <h4 style="margin:0 0 10px 0; font-size:13px; color:#93c5fd;">Atualizar Dados no Nomus ERP</h4>
+        <label style="display:block; margin-bottom:8px; font-size:12px;">
+          Telefone:
+          <input type="text" id="edit-nomus-telefone" value="${escapeHtml(client.telefone || "")}" style="width:100%; box-sizing:border-box; padding:6px; margin-top:2px;">
+        </label>
+        <label style="display:block; margin-bottom:8px; font-size:12px;">
+          E-mail:
+          <input type="email" id="edit-nomus-email" value="${escapeHtml(client.email || "")}" style="width:100%; box-sizing:border-box; padding:6px; margin-top:2px;">
+        </label>
+        <label style="display:block; margin-bottom:10px; font-size:12px;">
+          Observações / Anotações Nomus:
+          <textarea id="edit-nomus-obs" rows="3" style="width:100%; box-sizing:border-box; padding:6px; margin-top:2px;">${escapeHtml(client.anotacoes || "")}</textarea>
+        </label>
+        <div style="display:flex; justify-content:flex-end; gap:8px;">
+          <button type="button" class="btn btn-secondary" onclick="window.alternarEdicaoCliente()">Cancelar</button>
+          <button type="submit" id="btn-save-nomus-action" class="btn btn-primary">Salvar no Nomus</button>
+        </div>
+        <p id="edit-feedback-msg" style="display:none; font-size:12px; margin-top:8px;"></p>
+      </form>
+
       ${blocoProcessos(client, false)}
       ${quoteBlock}
       <section>
@@ -1485,3 +1513,72 @@
     showScreen("auth");
   }
 })();
+window.alternarEdicaoCliente = function () {
+  const viewMode = document.getElementById("drawer-view-mode");
+  const editMode = document.getElementById("drawer-edit-mode");
+  const btnToggle = document.getElementById("btn-toggle-edit");
+  const isEditing = editMode.style.display !== "none";
+
+  if (isEditing) {
+    editMode.style.display = "none";
+    viewMode.style.display = "grid";
+    btnToggle.style.display = "inline-block";
+  } else {
+    editMode.style.display = "block";
+    viewMode.style.display = "none";
+    btnToggle.style.display = "none";
+  }
+};
+
+window.salvarEdicaoCliente = async function (event) {
+  event.preventDefault();
+  const client = getClient(state.drawerId);
+  if (!client) return;
+
+  const nomusId = client.nomusId || (typeof client.id === "string" ? client.id.replace("nomus-", "") : client.id);
+  const btnSalvar = document.getElementById("btn-save-nomus-action");
+  const feedback = document.getElementById("edit-feedback-msg");
+
+  const payload = {
+    telefone: document.getElementById("edit-nomus-telefone").value.trim(),
+    email: document.getElementById("edit-nomus-email").value.trim(),
+    observacoes: document.getElementById("edit-nomus-obs").value.trim()
+  };
+
+  btnSalvar.disabled = true;
+  btnSalvar.textContent = "Sincronizando no ERP...";
+  feedback.style.display = "none";
+
+  try {
+    const resposta = await fetch(`/api/clientes/${nomusId}`, {
+      method: "PUT",
+      headers: { "Content-Type": "application/json; charset=utf-8" },
+      body: JSON.stringify(payload)
+    });
+
+    const resultado = await resposta.json();
+    if (!resposta.ok || !resultado.sucesso) {
+      throw new Error(resultado.erro || "Falha ao gravar no ERP");
+    }
+
+    client.telefone = payload.telefone;
+    client.email = payload.email;
+    client.anotacoes = payload.observacoes;
+
+    feedback.textContent = "✓ Dados atualizados com sucesso no Nomus ERP!";
+    feedback.style.color = "#4ade80";
+    feedback.style.display = "block";
+
+    setTimeout(() => {
+      openClient(client.id);
+    }, 1000);
+
+  } catch (err) {
+    feedback.textContent = `Erro: ${err.message}`;
+    feedback.style.color = "#f87171";
+    feedback.style.display = "block";
+  } finally {
+    btnSalvar.disabled = false;
+    btnSalvar.textContent = "Salvar no Nomus";
+  }
+};
