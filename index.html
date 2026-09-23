@@ -369,7 +369,8 @@
     </div>
   </div>
 
-  <dialog id="dialog-feedback" class="feedback-dialog" aria-labelledby="feedback-title">
+  <dialog id="modal-feedback" class="app-modal" aria-labelledby="feedback-title" hidden>
+    <div class="app-modal-caixa">
     <form id="form-feedback" method="dialog">
       <header class="feedback-header">
         <div>
@@ -416,9 +417,11 @@
         <button type="submit" class="btn btn-primary">Registrar sugestão</button>
       </div>
     </form>
+    </div>
   </dialog>
 
-  <dialog id="dialog-changelog" class="feedback-dialog" aria-labelledby="changelog-title">
+  <dialog id="modal-changelog" class="app-modal" aria-labelledby="changelog-title" hidden>
+    <div class="app-modal-caixa">
     <header class="feedback-header">
       <div>
         <p class="eyebrow">Histórico de melhorias</p>
@@ -432,9 +435,11 @@
     <div class="form-actions feedback-actions">
       <button type="button" class="btn btn-primary" data-action="close-changelog">Fechar</button>
     </div>
+    </div>
   </dialog>
 
-  <dialog id="dialog-perda" class="feedback-dialog perda-dialog" aria-labelledby="perda-title">
+  <dialog id="modal-perda" class="app-modal perda-dialog" aria-labelledby="perda-title" hidden>
+    <div class="app-modal-caixa">
     <form id="form-perda" method="dialog">
       <header class="feedback-header">
         <div>
@@ -471,6 +476,7 @@
         <button type="submit" class="btn btn-primary">Salvar</button>
       </div>
     </form>
+    </div>
   </dialog>
 
   <dialog id="dialog-bi" class="bi-dialog" aria-labelledby="bi-dialog-titulo">
@@ -483,7 +489,8 @@
     </form>
   </dialog>
 
-  <dialog id="modal-cliente" class="modal-cliente" aria-labelledby="modal-cliente-titulo">
+  <dialog id="modal-cliente" class="app-modal modal-cliente" aria-labelledby="modal-cliente-titulo" hidden>
+    <div class="app-modal-caixa">
     <form id="form-cliente">
       <header class="feedback-header">
         <div>
@@ -563,6 +570,7 @@
         <button type="submit" class="btn btn-primary">Salvar no Nomus</button>
       </div>
     </form>
+    </div>
   </dialog>
 
   <div id="toast" class="toast" role="status" aria-live="polite" hidden></div>

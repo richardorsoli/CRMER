@@ -268,19 +268,42 @@
       : '<option value="">Selecione a categoria</option>';
   }
 
+  const MODAIS = ["modal-feedback", "modal-changelog", "modal-perda", "modal-cliente"];
+
+  function fecharTodosModais(exceto) {
+    MODAIS.forEach((id) => {
+      if (id === exceto) return;
+      fecharModal(document.getElementById(id));
+    });
+  }
+
+  function abrirModal(dialog) {
+    if (!dialog) return;
+    fecharTodosModais(dialog.id);
+    dialog.hidden = false;
+    dialog.classList.add("ativo");
+    if (typeof dialog.showModal === "function" && !dialog.open) dialog.showModal();
+  }
+
+  function fecharModal(dialog) {
+    if (!dialog) return;
+    dialog.classList.remove("ativo", "open");
+    if (dialog.open) dialog.close();
+    dialog.hidden = true;
+  }
+
   function abrirPerda(id) {
     const form = document.getElementById("form-perda");
-    const dialog = document.getElementById("dialog-perda");
+    const dialog = document.getElementById("modal-perda");
     if (!form || !dialog || !state.funil.some((item) => item.id === id)) return;
     form.reset();
     document.getElementById("perda-processo-id").value = id;
     preencherMotivosPerda("");
-    dialog.showModal();
+    abrirModal(dialog);
   }
 
   function fecharPerda() {
-    const dialog = document.getElementById("dialog-perda");
-    if (dialog && dialog.open) dialog.close();
+    fecharModal(document.getElementById("modal-perda"));
   }
 
   function confirmarPerda(form) {
@@ -634,12 +657,11 @@
       if ([...form.uf.options].some((option) => option.value === client.uf)) form.uf.value = client.uf;
       form.observacoes.value = client.anotacoes || "";
     }
-    if (typeof dialog.showModal === "function") dialog.showModal();
+    abrirModal(dialog);
   }
 
   function fecharModalCliente() {
-    const dialog = document.getElementById("modal-cliente");
-    if (dialog && dialog.open) dialog.close();
+    fecharModal(document.getElementById("modal-cliente"));
   }
 
   async function salvarModalCliente(form) {
@@ -1753,6 +1775,10 @@
   }
 
   function onClick(event) {
+    if (event.target.matches("dialog.app-modal")) {
+      fecharModal(event.target);
+      return;
+    }
     if (!event.target.closest("#quick-search")) closeSearchList();
     const element = event.target.closest("[data-action]");
     if (!element) return;
@@ -1913,12 +1939,11 @@
     form.modulo.value = moduloAtual();
     erro.hidden = true;
     erro.textContent = "";
-    document.getElementById("dialog-feedback").showModal();
+    abrirModal(document.getElementById("modal-feedback"));
   }
 
   function closeFeedback() {
-    const dialog = document.getElementById("dialog-feedback");
-    if (dialog.open) dialog.close();
+    fecharModal(document.getElementById("modal-feedback"));
   }
 
   function autorAtivo() {
@@ -2020,7 +2045,7 @@
   async function openChangelog() {
     const lista = document.getElementById("changelog-list");
     lista.innerHTML = "<p class=\"release-meta\">Carregando o histórico…</p>";
-    document.getElementById("dialog-changelog").showModal();
+    abrirModal(document.getElementById("modal-changelog"));
     let notas = NOVIDADES_FALLBACK;
     try {
       const response = await fetch("novidades.json", { cache: "no-store" });
@@ -2035,8 +2060,7 @@
   }
 
   function closeChangelog() {
-    const dialog = document.getElementById("dialog-changelog");
-    if (dialog.open) dialog.close();
+    fecharModal(document.getElementById("modal-changelog"));
   }
 
   const registerForm = document.getElementById("form-register");
@@ -2068,6 +2092,14 @@
   document.addEventListener("keydown", onEscapeSearch, true);
   document.addEventListener("keydown", onGlobalKey);
   document.addEventListener("click", onClick);
+  MODAIS.forEach((id) => {
+    const dialog = document.getElementById(id);
+    if (!dialog) return;
+    dialog.addEventListener("close", () => {
+      dialog.classList.remove("ativo", "open");
+      dialog.hidden = true;
+    });
+  });
   document.addEventListener("submit", onSubmit);
   document.addEventListener("dragstart", onFunilDragStart);
   document.addEventListener("dragover", onFunilDragOver);
