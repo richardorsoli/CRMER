@@ -48,7 +48,18 @@
     searchTimer: 0,
     atividades: [],
     atividadesFiltro: "todos",
-    atividadeClienteId: null
+    atividadeClienteId: null,
+    funil: [],
+    perdas: [],
+    funilPronto: false
+  };
+
+  const FUNIL_ETAPAS = ["orcamentos", "negociacoes", "producao"];
+  const PERDA_MOTIVOS = {
+    "PREÇO": ["Preço acima do concorrente", "Sem verba"],
+    "PRAZO": ["Prazo de entrega longo"],
+    "FATURAMENTO": ["Prazo baixo de pagamento", "Não parcelamento"],
+    "PROJETO NÃO ATENDE": ["Especificação fora de escopo"]
   };
 
   const brl = new Intl.NumberFormat("pt-BR", { style: "currency", currency: "BRL" });
@@ -184,30 +195,108 @@
     ].join("");
   }
 
-  function renderAgenda() {
-    const due = dueContacts();
-    const list = document.getElementById("agenda-list");
-    if (!due.length) {
-      list.innerHTML = '<li class="empty-inline">Nenhum follow-up para hoje.</li>';
-      return;
-    }
-    list.innerHTML = due.map((client) => {
-      const status = statusOf(client);
-      return `<li><button type="button" data-action="open-client" data-id="${escapeHtml(client.id)}"><span><strong>${escapeHtml(client.razaoSocial)}</strong><small>${escapeHtml(status.label)} · ${escapeHtml(client.contato)}</small></span></button></li>`;
-    }).join("");
+  function garantirFunil() {
+    if (state.funilPronto) return;
+    const etapas = ["orcamentos", "negociacoes", "producao"];
+    state.funil = openQuotes().map(({ client, quote }, index) => ({
+      id: String(quote.codigo || `${client.id}-${index}`),
+      clienteId: client.id,
+      cliente: client.razaoSocial,
+      valor: Number(quote.valor) || 0,
+      data: quote.data || TODAY,
+      etapa: etapas[index % etapas.length]
+    }));
+    state.funilPronto = true;
   }
 
-  function renderQuotes() {
-    const rows = openQuotes();
-    const list = document.getElementById("quote-list");
-    if (!rows.length) {
-      list.innerHTML = '<li class="empty-inline">Nenhum orçamento parado.</li>';
-      return;
-    }
-    list.innerHTML = rows.map(({ client, quote }) => {
-      const wait = esperaOrcamento(quote.data);
-      return `<li><button type="button" data-action="open-client" data-id="${escapeHtml(client.id)}"><span><strong>${escapeHtml(client.razaoSocial)}</strong><small>${escapeHtml(quote.codigo)} · ${wait}</small></span><strong class="money">${money(quote.valor)}</strong></button></li>`;
-    }).join("");
+  function moverEtapa(id, destino) {
+    const card = state.funil.find((item) => item.id === id);
+    if (!card || !FUNIL_ETAPAS.includes(destino)) return;
+    card.etapa = destino;
+    renderFunil();
+  }
+
+  function deslocarEtapa(id, sentido) {
+    const card = state.funil.find((item) => item.id === id);
+    if (!card) return;
+    const indice = FUNIL_ETAPAS.indexOf(card.etapa);
+    const proximo = FUNIL_ETAPAS[indice + sentido];
+    if (!proximo) return;
+    card.etapa = proximo;
+    renderFunil();
+  }
+
+  function cardFunilHtml(card) {
+    return `<article class="kanban-card" draggable="true" data-processo-id="${escapeHtml(card.id)}"><p class="kanban-cliente">${escapeHtml(card.cliente)}</p><p class="kanban-valor">${money(card.valor)}</p><p class="kanban-data">${escapeHtml(formatDate(card.data))}</p><div class="kanban-actions"><button type="button" class="btn btn-small" data-action="avancar-etapa" data-id="${escapeHtml(card.id)}">Avançar Etapa</button><button type="button" class="btn btn-small" data-action="voltar-etapa" data-id="${escapeHtml(card.id)}">Voltar Etapa</button><button type="button" class="btn btn-small" data-action="marcar-perdido" data-id="${escapeHtml(card.id)}">Marcar como Perdido</button></div></article>`;
+  }
+
+  function renderFunil() {
+    garantirFunil();
+    FUNIL_ETAPAS.forEach((etapa) => {
+      const cards = state.funil.filter((item) => item.etapa === etapa);
+      const total = cards.reduce((soma, item) => soma + item.valor, 0);
+      const lista = document.querySelector(`[data-funil-lista="${etapa}"]`);
+      const meta = document.querySelector(`[data-funil-meta="${etapa}"]`);
+      if (lista) {
+        lista.innerHTML = cards.length
+          ? cards.map(cardFunilHtml).join("")
+          : '<p class="empty-inline">Nenhum processo nesta etapa.</p>';
+      }
+      if (meta) meta.textContent = `${cards.length} · ${money(total)}`;
+    });
+    renderPerdas();
+  }
+
+  function renderPerdas() {
+    Object.keys(PERDA_MOTIVOS).forEach((categoria) => {
+      const alvo = document.querySelector(`[data-perda-count="${categoria}"]`);
+      if (!alvo) return;
+      const qtd = state.perdas.filter((item) => item.categoria === categoria).length;
+      alvo.textContent = String(qtd);
+    });
+  }
+
+  function preencherMotivosPerda(categoria) {
+    const motivo = document.getElementById("perda-motivo");
+    if (!motivo) return;
+    const opcoes = PERDA_MOTIVOS[categoria] || [];
+    motivo.innerHTML = opcoes.length
+      ? opcoes.map((item) => `<option value="${escapeHtml(item)}">${escapeHtml(item)}</option>`).join("")
+      : '<option value="">Selecione a categoria</option>';
+  }
+
+  function abrirPerda(id) {
+    const form = document.getElementById("form-perda");
+    const dialog = document.getElementById("dialog-perda");
+    if (!form || !dialog || !state.funil.some((item) => item.id === id)) return;
+    form.reset();
+    document.getElementById("perda-processo-id").value = id;
+    preencherMotivosPerda("");
+    dialog.showModal();
+  }
+
+  function fecharPerda() {
+    const dialog = document.getElementById("dialog-perda");
+    if (dialog && dialog.open) dialog.close();
+  }
+
+  function confirmarPerda(form) {
+    const id = form.processoId.value;
+    const categoria = form.categoria.value;
+    const motivo = form.motivo.value;
+    const card = state.funil.find((item) => item.id === id);
+    if (!card || !PERDA_MOTIVOS[categoria] || !motivo) return;
+    state.funil = state.funil.filter((item) => item.id !== id);
+    state.perdas.push({
+      id: card.id,
+      cliente: card.cliente,
+      valor: card.valor,
+      categoria,
+      motivo,
+      observacao: form.observacao.value.trim()
+    });
+    fecharPerda();
+    renderFunil();
   }
 
   function renderTeam() {
@@ -227,8 +316,7 @@
 
   function renderDashboard() {
     renderKpis();
-    renderAgenda();
-    renderQuotes();
+    renderFunil();
     renderTeam();
     renderFonte();
   }
@@ -1411,12 +1499,42 @@
     if (action === "close-feedback") closeFeedback();
     if (action === "open-changelog") openChangelog();
     if (action === "close-changelog") closeChangelog();
+    if (action === "avancar-etapa") deslocarEtapa(element.dataset.id, 1);
+    if (action === "voltar-etapa") deslocarEtapa(element.dataset.id, -1);
+    if (action === "marcar-perdido") abrirPerda(element.dataset.id);
+    if (action === "cancelar-perda") fecharPerda();
+  }
+
+  function onFunilDragStart(event) {
+    const card = event.target.closest(".kanban-card");
+    if (!card) return;
+    event.dataTransfer.setData("text/plain", card.dataset.processoId || "");
+    event.dataTransfer.effectAllowed = "move";
+  }
+
+  function onFunilDragOver(event) {
+    if (!event.target.closest(".kanban-col")) return;
+    event.preventDefault();
+    event.dataTransfer.dropEffect = "move";
+  }
+
+  function onFunilDrop(event) {
+    const coluna = event.target.closest(".kanban-col");
+    if (!coluna) return;
+    event.preventDefault();
+    const id = event.dataTransfer.getData("text/plain");
+    moverEtapa(id, coluna.dataset.etapa);
+  }
+
+  function onPerdaCategoria(event) {
+    if (event.target.id !== "perda-categoria") return;
+    preencherMotivosPerda(event.target.value);
   }
 
   function onSubmit(event) {
     const form = event.target;
     if (!(form instanceof HTMLFormElement)) return;
-    if (!["form-login", "form-register", "form-notes", "form-create", "form-search", "form-product-search", "form-feedback", "form-atividade"].includes(form.id)) return;
+    if (!["form-login", "form-register", "form-notes", "form-create", "form-search", "form-product-search", "form-feedback", "form-atividade", "form-perda"].includes(form.id)) return;
     event.preventDefault();
     if (form.id === "form-login") handleLogin(form);
     if (form.id === "form-register") handleRegister(form);
@@ -1425,6 +1543,7 @@
     if (form.id === "form-search") openSearchResult();
     if (form.id === "form-feedback") handleFeedback(form);
     if (form.id === "form-atividade") salvarAtividade(form);
+    if (form.id === "form-perda") confirmarPerda(form);
   }
 
   function togglePassword(button) {
@@ -1648,6 +1767,10 @@
   document.addEventListener("keydown", onGlobalKey);
   document.addEventListener("click", onClick);
   document.addEventListener("submit", onSubmit);
+  document.addEventListener("dragstart", onFunilDragStart);
+  document.addEventListener("dragover", onFunilDragOver);
+  document.addEventListener("drop", onFunilDrop);
+  document.addEventListener("change", onPerdaCategoria);
   renderDashboard();
   renderClientList();
 

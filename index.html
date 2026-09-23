@@ -205,16 +205,42 @@
           <div class="block">
             <h2 id="performance-title">Minha Performance (Natália)</h2>
             <div class="kpi-grid" id="kpi-grid"></div>
-            <div class="split">
-              <section class="panel">
-                <h3>Agenda de hoje</h3>
-                <ul id="agenda-list" class="link-list"></ul>
-              </section>
-              <section class="panel">
-                <h3>Aguardando retorno</h3>
-                <ul id="quote-list" class="link-list"></ul>
-              </section>
-            </div>
+            <section class="funil-vendas" aria-labelledby="funil-vendas-title">
+              <h3 id="funil-vendas-title">Funil de Vendas</h3>
+              <div class="kanban" id="kanban-funil">
+                <section class="kanban-col" data-etapa="orcamentos">
+                  <header class="kanban-head">
+                    <h4>ORÇAMENTOS</h4>
+                    <p class="kanban-meta" data-funil-meta="orcamentos">0 · R$ 0,00</p>
+                  </header>
+                  <div class="kanban-cards" data-funil-lista="orcamentos"></div>
+                </section>
+                <section class="kanban-col" data-etapa="negociacoes">
+                  <header class="kanban-head">
+                    <h4>NEGOCIAÇÕES</h4>
+                    <p class="kanban-meta" data-funil-meta="negociacoes">0 · R$ 0,00</p>
+                  </header>
+                  <div class="kanban-cards" data-funil-lista="negociacoes"></div>
+                </section>
+                <section class="kanban-col" data-etapa="producao">
+                  <header class="kanban-head">
+                    <h4>PRODUÇÃO</h4>
+                    <p class="kanban-meta" data-funil-meta="producao">0 · R$ 0,00</p>
+                  </header>
+                  <div class="kanban-cards" data-funil-lista="producao"></div>
+                </section>
+              </div>
+            </section>
+
+            <section class="funil-perdas" aria-labelledby="funil-perdas-title">
+              <h3 id="funil-perdas-title">Funil de Perdas</h3>
+              <div class="perdas-grid" id="funil-perdas">
+                <article class="perda-card" data-perda="PREÇO"><h4>PREÇO</h4><p class="perda-count" data-perda-count="PREÇO">0</p></article>
+                <article class="perda-card" data-perda="PRAZO"><h4>PRAZO</h4><p class="perda-count" data-perda-count="PRAZO">0</p></article>
+                <article class="perda-card" data-perda="FATURAMENTO"><h4>FATURAMENTO</h4><p class="perda-count" data-perda-count="FATURAMENTO">0</p></article>
+                <article class="perda-card" data-perda="PROJETO NÃO ATENDE"><h4>PROJETO NÃO ATENDE</h4><p class="perda-count" data-perda-count="PROJETO NÃO ATENDE">0</p></article>
+              </div>
+            </section>
           </div>
 
           <div class="block">
@@ -391,6 +417,45 @@
     <div class="form-actions feedback-actions">
       <button type="button" class="btn btn-primary" data-action="close-changelog">Fechar</button>
     </div>
+  </dialog>
+
+  <dialog id="dialog-perda" class="feedback-dialog perda-dialog" aria-labelledby="perda-title">
+    <form id="form-perda" method="dialog">
+      <header class="feedback-header">
+        <div>
+          <p class="eyebrow">Funil de vendas</p>
+          <h2 id="perda-title">Registrar Perda de Processo</h2>
+        </div>
+        <button type="button" class="icon-btn" data-action="cancelar-perda" aria-label="Fechar registro de perda">
+          <svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18"></path></svg>
+        </button>
+      </header>
+      <input type="hidden" name="processoId" id="perda-processo-id">
+      <label>
+        Categoria
+        <select name="categoria" id="perda-categoria" required>
+          <option value="">Selecione</option>
+          <option value="PREÇO">PREÇO</option>
+          <option value="PRAZO">PRAZO</option>
+          <option value="FATURAMENTO">FATURAMENTO</option>
+          <option value="PROJETO NÃO ATENDE">PROJETO NÃO ATENDE</option>
+        </select>
+      </label>
+      <label>
+        Motivo específico
+        <select name="motivo" id="perda-motivo" required>
+          <option value="">Selecione a categoria</option>
+        </select>
+      </label>
+      <label>
+        Observação
+        <textarea name="observacao" id="perda-observacao" rows="4" placeholder="O que a obra ou o comprador informou"></textarea>
+      </label>
+      <div class="form-actions feedback-actions">
+        <button type="button" class="btn" data-action="cancelar-perda">Cancelar</button>
+        <button type="submit" class="btn btn-primary">Salvar</button>
+      </div>
+    </form>
   </dialog>
 
   <div id="toast" class="toast" role="status" aria-live="polite" hidden></div>

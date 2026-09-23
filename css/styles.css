@@ -752,6 +752,120 @@ textarea {
   margin-top: 12px;
 }
 
+.funil-vendas,
+.funil-perdas {
+  margin-top: 18px;
+}
+
+.funil-vendas h3,
+.funil-perdas h3 {
+  margin-bottom: 10px;
+  font-size: 16px;
+}
+
+.kanban {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 12px;
+  align-items: start;
+}
+
+.kanban-col {
+  min-height: 180px;
+  padding: 10px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: var(--surface);
+}
+
+.kanban-col[data-etapa="orcamentos"] { background: #f7f1ea; }
+.kanban-col[data-etapa="negociacoes"] { background: #eef3f8; }
+.kanban-col[data-etapa="producao"] { background: #eef6f4; }
+
+.kanban-head h4 {
+  margin: 0;
+  font-size: 13px;
+  letter-spacing: 0.04em;
+}
+
+.kanban-meta,
+.kanban-data {
+  margin: 4px 0 0;
+  color: var(--muted);
+  font-size: 13px;
+}
+
+.kanban-cards {
+  display: grid;
+  gap: 8px;
+  margin-top: 10px;
+  min-height: 72px;
+}
+
+.kanban-card {
+  padding: 10px 12px;
+  background: #fff;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  cursor: grab;
+}
+
+.kanban-card:hover {
+  border-color: #b7c3cf;
+}
+
+.kanban-card:active {
+  cursor: grabbing;
+}
+
+.kanban-cliente {
+  margin: 0;
+  font-weight: 700;
+}
+
+.kanban-valor {
+  margin: 4px 0 0;
+  font-weight: 700;
+}
+
+.kanban-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 8px;
+}
+
+.perdas-grid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.perda-card {
+  padding: 14px;
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+}
+
+.perda-card h4 {
+  margin: 0;
+  font-size: 13px;
+  color: var(--muted);
+}
+
+.perda-count {
+  margin: 8px 0 0;
+  font-size: 28px;
+  font-weight: 750;
+  letter-spacing: -0.03em;
+}
+
+.perda-dialog select,
+.perda-dialog textarea {
+  width: 100%;
+}
+
 .big-number {
   margin-top: 6px;
   font-size: 36px;
@@ -1425,7 +1539,9 @@ body.drawer-open {
   }
 
   .split,
-  .details {
+  .details,
+  .kanban,
+  .perdas-grid {
     grid-template-columns: 1fr;
   }
 
