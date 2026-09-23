@@ -1,0 +1,58 @@
+======================================================================
+CRMER - ROADMAP DE EVOLUÇÃO E PRÓXIMAS SPRINTS
+======================================================================
+
+[SPRINT 2 - Login - Concluída]
+1. botão de revelar a senha na primeira tela de login para eu poder ver se a senha que estou colocando está correta e também na tela de cadastro
+2. colocar aquela função que compara as senhas e diz que estão iguais
+3. colocar como padrão 1 letra maiúscula, números e pelo menos 1 caractere especial
+
+[Sprint 3 - Concluída / Em Validação] - v1.3 & v1.3.1: Estabilidade e Leitura Nomus
+- Resiliência HTTP: urllib3 com Retry, backoff exponencial, jitter e Retry-After.
+- Sincronização incremental: janela móvel de pedidos (/pedidos?query=idTipoPedido=2).
+- Catálogo de produtos com cache inteligente e pacing profilático (1s).
+- Menu Produtos categorizado nas 4 famílias (Gás, Saneamento, Elétrica e Fechamento).
+- Gráfico SVG de histórico de preços praticados e condição de pagamento na ficha do cliente.
+- Logs em tempo real no console com flush=True.
+
+----------------------------------------------------------------------
+
+[Sprint 4] - v1.4: Refinamento de Dados e Validação Operacional com a Natália
+Objetivo: Garantir que a Natália tenha 100% de confiança e utilidade na rotina diária de vendas.
+- Validação em campo: acompanhamento da Natália usando o CRMER para consultas diárias, orçamentos e histórico de preços.
+- Ajustes de usabilidade: refinamento de filtros, ordenação por valor/data e busca rápida por CNPJ/Código de obra.
+- Exportação de consultas: opção de copiar resumo de cotação ou exportar dados rápidos para negociação via WhatsApp/e-mail.
+- Tratamento fino de inconsistências: validação de status de pedidos em aberto vs. faturados.
+- Critério de aceite: Aprovação formal da Natália de que a ferramenta atende plenamente o fluxo de atendimento diário.
+
+----------------------------------------------------------------------
+
+[Sprint 5] - v1.5: Bidirecionalidade (CRMER -> Nomus)
+Objetivo: Permitir que ações tomadas no CRMER reflitam diretamente no Nomus ERP.
+- Atualização cadastral: edição de dados de contato do cliente (telefone, e-mail do comprador, observações comerciais) enviando PUT/PATCH para o endpoint /pessoas ou /clientes.
+- Registro de interações: gravação de histórico de contato/follow-up ou anotações comerciais no ERP.
+- Pré-pedidos / Propostas (se aplicável): criação de rascunhos de pedidos via POST na API do Nomus.
+- Tratamento de concorrência e autorização: validação de token com permissão de escrita e feedback visual de sucesso/erro na interface.
+
+----------------------------------------------------------------------
+
+[Sprint 6] - v1.6: Visão Global de Vendas (Expansão da Carteira)
+Objetivo: Abrir a visão completa da fábrica, removendo o filtro exclusivo de um vendedor.
+- Multi-vendedor / Diretoria: suporte a alternar entre carteira individual (Natália) e visão consolidada da equipe/fábrica.
+- Carga histórica ampla: estratégia de sincronização em segundo plano para pedidos globais sem penalizar a performance local.
+- Relatórios comparativos: ranking de clientes por volume de compras, famílias de produtos mais demandadas e curva ABC global.
+- Gestão de permissões: controle de acesso para definir quem enxerga apenas a própria carteira ou a visão geral.
+
+----------------------------------------------------------------------
+
+[Sprint 7] - v1.7: Cereja do Bolo - Inteligência Consultiva com Gemini AI
+Objetivo: Transformar dados históricos em inteligência de mercado e recomendações acionáveis de vendas.
+- Botão na interface: "[ ✨ Estudar Cenário & Recomendações ]" na ficha do cliente e na visão de produto.
+- Integração de API: conexão com Google AI Studio via backend Python (.env / GEMINI_API_KEY) ou serviço desacoplado.
+- Análise de Oportunidades:
+  * Diagnóstico de frequência e ticket médio do cliente.
+  * Sugestões de Cross-selling (identificar o que construtoras similares compram nas 4 famílias e ofertar itens complementares).
+  * Argumento comercial pronto (speech de vendas customizado para o vendedor copiar e abordar o cliente no momento certo).
+======================================================================
+
+ 
