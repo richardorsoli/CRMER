@@ -67,7 +67,7 @@ A barra no topo do Dashboard e da Carteira busca razão social, nome fantasia, C
 - Backend futuro: Python com FastAPI e SQLite ou PostgreSQL. Não antecipe o servidor dentro do HTML.
 - Integração: o cliente HTTP fica em `backend/` e fala com a API do Nomus. O front-end não chama o Nomus direto.
 - Fase 1 é só consulta. Depois do login, `carregarCarteira()` tenta `backend/output/dados_ehe.json` (carteira, produtos e histórico de preços). Falhou o `fetch`, usa `js/mock-data.js`. Edições locais da Natália são reaplicadas por cima. A interface não deve apresentar essa consulta como integração já ativa.
-- A consulta ao Nomus espera 1,2 s entre páginas. No status 429, espera 45 s e tenta no máximo quatro vezes. A rotina diária é de segunda a sexta, às 12:00, na janela de almoço (`python -m backend.scheduler`).
+- A consulta ao Nomus espera 1,5 s entre páginas bem-sucedidas. O 429 usa o Retry do urllib3 (5 tentativas, backoff de 2, 4, 8, 16 e 32 s, obedecendo `Retry-After`) e, se a resposta ainda for 429, espera o cabeçalho ou um backoff com jitter. Se `dados_ehe.json` já tiver clientes do Nomus, a rotina não varre `/clientes` inteiro, salvo com `--full`. A rotina diária é de segunda a sexta, às 12:00, na janela de almoço (`python -m backend.scheduler`).
 - O menu Produtos lista o catálogo das quatro linhas. A ficha do cliente mostra a condição negociada e o histórico de preço unitário em gráfico nativo, somente leitura.
 - Token do Nomus somente na variável `NOMUS_AUTH_TOKEN`. Não gravar segredo em código, em `js/` nem no JSON exportado.
 - Baixo atrito para a Natália: poucos campos editáveis na ficha (anotação da obra e data do próximo contato). Dados de pedido ficam somente leitura enquanto vierem do Nomus.

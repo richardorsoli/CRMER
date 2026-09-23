@@ -1,0 +1,21 @@
+[
+  {
+    "versao": "1.4.0",
+    "data": "23/09/2026",
+    "solicitante": "Natália",
+    "itens": [
+      "Local de entrega da obra na linha do pedido faturado.",
+      "Transportadora vinculada à NF-e do pedido.",
+      "Follow-ups de orçamento a partir dos processos de vendas."
+    ]
+  },
+  {
+    "versao": "1.3.1",
+    "data": "22/09/2026",
+    "solicitante": "Time técnico",
+    "itens": [
+      "Leitura incremental da carteira, dos pedidos e do catálogo no Nomus.",
+      "Histórico de preço e condição de pagamento na ficha do cliente."
+    ]
+  }
+]
