@@ -1,4 +1,4 @@
-﻿"""Servidor HTTP local do CRMER com suporte a feedback e escrita bidirecional."""
+﻿"""Servidor HTTP local do CRMER com suporte a feedback, sincronização e atividades."""
 
 from __future__ import annotations
 
@@ -6,15 +6,17 @@ import argparse
 import json
 import os
 import re
+import uuid
 from datetime import datetime, timezone
 from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from typing import Any
-from urllib.parse import urlparse
+from urllib.parse import parse_qs, urlparse
 
 RAIZ = Path(__file__).resolve().parent.parent
 PASTA_OUTPUT = RAIZ / "backend" / "output"
 ARQUIVO_SUGESTOES = PASTA_OUTPUT / "sugestoes.json"
+ARQUIVO_ATIVIDADES = PASTA_OUTPUT / "atividades.json"
 CAMINHO_DADOS = PASTA_OUTPUT / "dados_ehe.json"
 ARQUIVO_ENV = RAIZ / ".env"
 
@@ -41,11 +43,10 @@ carregar_env()
 
 
 class FeedbackError(Exception):
-    """Erro de validação ao registrar feedback."""
+    """Erro de validação."""
 
 
 def validar_sugestao(payload: Any) -> dict[str, Any]:
-    """Valida o payload de sugestão de melhoria."""
     if not isinstance(payload, dict):
         raise FeedbackError("O corpo da requisição precisa ser um objeto JSON.")
 
@@ -62,6 +63,7 @@ def validar_sugestao(payload: Any) -> dict[str, Any]:
         raise FeedbackError("O campo 'descricao' é obrigatório.")
 
     return {
+        "id": f"sug-{uuid.uuid4().hex[:8]}",
         "data": datetime.now(timezone.utc).isoformat(),
         "modulo": modulo,
         "tipo": tipo,
@@ -72,7 +74,6 @@ def validar_sugestao(payload: Any) -> dict[str, Any]:
 
 
 def registrar_sugestao(payload: Any) -> dict[str, Any]:
-    """Grava a sugestão em backend/output/sugestoes.json."""
     item = validar_sugestao(payload)
     PASTA_OUTPUT.mkdir(parents=True, exist_ok=True)
 
@@ -87,10 +88,69 @@ def registrar_sugestao(payload: Any) -> dict[str, Any]:
             itens = []
 
     itens.append(item)
-
     with open(ARQUIVO_SUGESTOES, "w", encoding="utf-8") as f:
         json.dump(itens, f, ensure_ascii=False, indent=2)
+    return item
 
+
+def validar_atividade(payload: Any) -> dict[str, Any]:
+    if not isinstance(payload, dict):
+        raise FeedbackError("O corpo da requisição precisa ser um objeto JSON.")
+
+    nomus_id = payload.get("nomusId")
+    if nomus_id is None:
+        raise FeedbackError("O campo 'nomusId' é obrigatório.")
+    try:
+        nomus_id = int(nomus_id)
+    except (ValueError, TypeError):
+        raise FeedbackError("O campo 'nomusId' deve ser numérico.")
+
+    tipo = str(payload.get("tipo", "")).strip()
+    tipos_validos = {"WhatsApp", "E-mail", "Ligação"}
+    if tipo not in tipos_validos:
+        raise FeedbackError(f"Tipo inválido. Opções permitidas: {', '.join(tipos_validos)}.")
+
+    status = str(payload.get("status", "")).strip()
+    status_validos = {"Sucesso", "Sem sucesso"}
+    if status not in status_validos:
+        raise FeedbackError(f"Status inválido. Opções permitidas: {', '.join(status_validos)}.")
+
+    data_informada = payload.get("data")
+    if data_informada and isinstance(data_informada, str):
+        data_registro = data_informada.strip()
+    else:
+        data_registro = datetime.now(timezone.utc).isoformat()
+
+    return {
+        "id": f"act-{uuid.uuid4().hex[:8]}",
+        "nomusId": nomus_id,
+        "usuario": str(payload.get("usuario") or payload.get("vendedor") or "Natália").strip() or "Natália",
+        "tipo": tipo,
+        "status": status,
+        "data": data_registro,
+        "observacao": str(payload.get("observacao", "")).strip(),
+    }
+
+
+def carregar_atividades() -> list[dict[str, Any]]:
+    if not ARQUIVO_ATIVIDADES.exists():
+        return []
+    try:
+        with open(ARQUIVO_ATIVIDADES, "r", encoding="utf-8") as f:
+            conteudo = json.load(f)
+            return conteudo if isinstance(conteudo, list) else []
+    except Exception:
+        return []
+
+
+def registrar_atividade(payload: Any) -> dict[str, Any]:
+    item = validar_atividade(payload)
+    PASTA_OUTPUT.mkdir(parents=True, exist_ok=True)
+    itens = carregar_atividades()
+    itens.insert(0, item)  # mais recente primeiro
+
+    with open(ARQUIVO_ATIVIDADES, "w", encoding="utf-8") as f:
+        json.dump(itens, f, ensure_ascii=False, indent=2)
     return item
 
 
@@ -100,7 +160,7 @@ class FeedbackHandler(SimpleHTTPRequestHandler):
     def __init__(self, *args: Any, **kwargs: Any) -> None:
         super().__init__(*args, directory=str(RAIZ), **kwargs)
 
-    def _json(self, status: int, payload: dict[str, Any]) -> None:
+    def _json(self, status: int, payload: dict[str, Any] | list[Any]) -> None:
         corpo = json.dumps(payload, ensure_ascii=False).encode("utf-8")
         self.send_response(status)
         self.send_header("Content-Type", "application/json; charset=utf-8")
@@ -108,50 +168,80 @@ class FeedbackHandler(SimpleHTTPRequestHandler):
         self.end_headers()
         self.wfile.write(corpo)
 
-    def do_POST(self) -> None:
-        if urlparse(self.path).path != "/api/feedback":
-            self.send_error(404)
+    def do_GET(self) -> None:
+        parsed = urlparse(self.path)
+        if parsed.path == "/api/atividades":
+            params = parse_qs(parsed.query)
+            todas = carregar_atividades()
+
+            if "nomusId" in params:
+                try:
+                    filtro_id = int(params["nomusId"][0])
+                    todas = [a for a in todas if a.get("nomusId") == filtro_id]
+                except ValueError:
+                    pass
+
+            if "vendedor" in params:
+                filtro_v = params["vendedor"][0].strip().lower()
+                todas = [a for a in todas if str(a.get("usuario", "")).lower() == filtro_v]
+
+            self._json(200, todas)
             return
 
+        super().do_GET()
+
+    def do_POST(self) -> None:
+        caminho = urlparse(self.path).path
         tamanho = int(self.headers.get("Content-Length") or 0)
         if tamanho <= 0 or tamanho > LIMITE_CORPO:
-            self._json(400, {"erro": "Corpo da sugestão ausente ou grande demais."})
+            self._json(400, {"erro": "Corpo da requisição ausente ou grande demais."})
             return
 
-        bruto = self.rfile.read(tamanho)
         try:
-            payload = json.loads(bruto.decode("utf-8"))
-            item = registrar_sugestao(payload)
-        except FeedbackError as exc:
-            self._json(400, {"erro": str(exc)})
-            return
+            payload = json.loads(self.rfile.read(tamanho).decode("utf-8"))
         except json.JSONDecodeError:
-            self._json(400, {"erro": "O corpo não é JSON."})
+            self._json(400, {"erro": "O corpo não é um JSON válido."})
             return
 
-        self._json(201, {"ok": True, "item": item})
+        if caminho == "/api/feedback":
+            try:
+                item = registrar_sugestao(payload)
+                self._json(201, {"ok": True, "item": item})
+            except FeedbackError as exc:
+                self._json(400, {"erro": str(exc)})
+            return
+
+        if caminho == "/api/atividades":
+            try:
+                item = registrar_atividade(payload)
+                self._json(201, {"sucesso": True, "atividade": item})
+            except FeedbackError as exc:
+                self._json(400, {"erro": str(exc)})
+            return
+
+        self.send_error(404)
 
     def do_PUT(self) -> None:
         caminho = urlparse(self.path).path
         match = re.match(r"^/api/clientes/(\d+)$", caminho)
         if not match:
-            self.send_error(404, "Rota nao encontrada")
+            self.send_error(404, "Rota não encontrada")
             return
 
         id_cliente = int(match.group(1))
         tamanho = int(self.headers.get("Content-Length") or 0)
         if tamanho <= 0 or tamanho > LIMITE_CORPO:
-            self._json(400, {"erro": "Corpo da requisicao ausente ou invalido."})
+            self._json(400, {"erro": "Corpo da requisição ausente ou inválido."})
             return
 
         try:
             dados_novos = json.loads(self.rfile.read(tamanho).decode("utf-8"))
         except Exception:
-            self._json(400, {"erro": "JSON invalido."})
+            self._json(400, {"erro": "JSON inválido."})
             return
 
         if not CAMINHO_DADOS.exists():
-            self._json(404, {"erro": "Arquivo dados_ehe.json nao encontrado."})
+            self._json(404, {"erro": "Arquivo dados_ehe.json não encontrado."})
             return
 
         try:
@@ -165,7 +255,7 @@ class FeedbackHandler(SimpleHTTPRequestHandler):
                     break
 
             if not cliente:
-                self._json(404, {"erro": f"Cliente {id_cliente} nao encontrado na base local."})
+                self._json(404, {"erro": f"Cliente {id_cliente} não encontrado na base local."})
                 return
 
             nome_display = cliente.get("nomeFantasia") or cliente.get("razaoSocial") or ""
@@ -185,7 +275,6 @@ class FeedbackHandler(SimpleHTTPRequestHandler):
             client = NomusClient()
             client.atualizar_cliente(id_cliente, payload_nomus)
 
-            # Atualiza o cache local
             cliente["telefone"] = payload_nomus["telefone"]
             cliente["email"] = payload_nomus["email"]
             cliente["anotacoes"] = payload_nomus["observacoes"]
@@ -211,7 +300,7 @@ def main(argv: list[str] | None = None) -> int:
     argumentos = construir_parser().parse_args(argv)
     servidor = ThreadingHTTPServer((argumentos.host, argumentos.porta), FeedbackHandler)
     print(f"CRMER no ar em http://localhost:{argumentos.porta}/ (rede: 0.0.0.0)", flush=True)
-    print("Endpoints ativos: POST /api/feedback  |  PUT /api/clientes/<id>", flush=True)
+    print("Endpoints ativos: POST /api/feedback | PUT /api/clientes/<id> | GET/POST /api/atividades", flush=True)
     try:
         servidor.serve_forever()
     except KeyboardInterrupt:
