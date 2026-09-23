@@ -55,4 +55,31 @@ Objetivo: Transformar dados históricos em inteligência de mercado e recomenda�
   * Argumento comercial pronto (speech de vendas customizado para o vendedor copiar e abordar o cliente no momento certo).
 ======================================================================
 
- 
+
+ATALHOS ÚTEIS PARA O TRABALHO
+
+07:30 ABRIR SERVIDOR-PRODUÇÃO NATALIA: POWERSHELL
+python -m backend.feedback_handler --host 0.0.0.0 --porta 8080
+
+07:35 python listar_sugestoes.py
+
+NO ALMOÇO
+12:12 SALVA ALTERAÇÕES: POWERSHELL
+git add backend/nomus_client.py backend/feedback_handler.py index.html js/app.js css/styles.css
+git commit -m "ESCREVA UM TITULO PARA ALTERACAO"
+git push
+
+12:13 CTRL+C NO PROD
+
+12:14 SERVIDOR-PRODUÇÃO - POWERSHELL
+git pull origin main
+
+12:15 REABRE: POWERSHELL
+python -m backend.feedback_handler --host 0.0.0.0 --porta 8080
+
+
+======================================================================
+NOVA ALTERAÇÕES
+
+1.REMOVER AS JANELAS NO FINAL DA PÁGINA
+2.EM ATIVIDADES > REGISTRAR CONTATO-JANELA ABRIR DIRETO NA RETANGULO DO CLIENTE E NÃO NO TOPO
