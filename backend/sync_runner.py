@@ -60,12 +60,18 @@ def executar(argumentos: argparse.Namespace) -> int:
         pedidos = _mesclar_pedidos(pedidos_novos, anteriores)
         print("\n--- Iniciando coleta de produtos ---", flush=True)
         produtos = cliente.garantir_produtos(_ids_produto(pedidos))
+        print("\n--- Iniciando coleta de processos de vendas ---", flush=True)
+        processos = cliente.listar_processos()
+        print("\n--- Iniciando coleta de notas fiscais recentes ---", flush=True)
+        nfes = cliente.listar_nfes()
         carteira = montar_carteira(
             clientes,
             produtos,
             pedidos,
             vendedor_id=argumentos.vendedor_id,
             referencia=DATA_REFERENCIA,
+            processos_raw=processos,
+            nfes_raw=nfes,
         )
         payload = carteira.model_dump(mode="json")
         payload["clientes"] = payload["clients"]
@@ -90,6 +96,7 @@ def executar(argumentos: argparse.Namespace) -> int:
         f"Pedidos novos: {len(pedidos_novos)} · reunidos com o histórico: {len(pedidos)} · "
         f"produtos em cache: {len(produtos)}"
     )
+    print(f"Processos de vendas: {len(processos)} · notas fiscais recentes: {len(nfes)}")
     print(f"Produtos vendáveis: {len(carteira.produtos)} · preços: {len(carteira.historico_precos)}")
     print(
         "Filas: "

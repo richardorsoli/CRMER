@@ -23,8 +23,12 @@
     return {
       ...client,
       linhas: [...(client.linhas || [])],
-      pedidos: (client.pedidos || []).map((order) => ({ ...order })),
-      orcamentos: (client.orcamentos || []).map((quote) => ({ ...quote }))
+      pedidos: (client.pedidos || []).map((order) => ({
+        ...order,
+        ...(order.nfe_info ? { nfe_info: { ...order.nfe_info } } : {})
+      })),
+      orcamentos: (client.orcamentos || []).map((quote) => ({ ...quote })),
+      processos: (client.processos || []).map((proc) => ({ ...proc }))
     };
   }
 
@@ -198,8 +202,7 @@
       return;
     }
     list.innerHTML = rows.map(({ client, quote }) => {
-      const delta = daysSince(quote.data);
-      const wait = delta === 0 ? "enviado hoje" : `há ${delta} dia${delta === 1 ? "" : "s"}`;
+      const wait = esperaOrcamento(quote.data);
       return `<li><button type="button" data-action="open-client" data-id="${escapeHtml(client.id)}"><span><strong>${escapeHtml(client.razaoSocial)}</strong><small>${escapeHtml(quote.codigo)} · ${wait}</small></span><strong class="money">${money(quote.valor)}</strong></button></li>`;
     }).join("");
   }
@@ -237,7 +240,8 @@
 
   function cardTemplate(client) {
     const status = statusOf(client);
-    return `<article class="client-card" data-ranking="${escapeHtml(client.ranking)}"><div class="client-card-top"><div><h3>${escapeHtml(client.razaoSocial)}</h3><p class="client-meta">${escapeHtml(client.tipo)} · ${escapeHtml(client.cidade)}/${escapeHtml(client.uf)}</p></div><div class="badge-row"><span class="badge ${status.className}">${escapeHtml(status.label)}</span>${extraBadges(client)}</div></div><p class="client-contact">${escapeHtml(client.contato)} · ${escapeHtml(client.cargo)}</p><div class="chips">${chips(client.linhas)}</div><p class="client-summary">${escapeHtml(client.resumo)}</p><div class="client-card-foot"><span>12 meses <strong class="money">${money(client.faturamento12m)}</strong></span><button type="button" class="btn btn-small" data-action="open-client" data-id="${escapeHtml(client.id)}">Abrir ficha</button></div></article>`;
+    const processos = blocoProcessos(client, true);
+    return `<article class="client-card" data-ranking="${escapeHtml(client.ranking)}"><div class="client-card-top"><div><h3>${escapeHtml(client.razaoSocial)}</h3><p class="client-meta">${escapeHtml(client.tipo)} · ${escapeHtml(client.cidade)}/${escapeHtml(client.uf)}</p></div><div class="badge-row"><span class="badge ${status.className}">${escapeHtml(status.label)}</span>${extraBadges(client)}</div></div><p class="client-contact">${escapeHtml(client.contato)} · ${escapeHtml(client.cargo)}</p><div class="chips">${chips(client.linhas)}</div><p class="client-summary">${escapeHtml(client.resumo)}</p>${processos}<div class="client-card-foot"><span>12 meses <strong class="money">${money(client.faturamento12m)}</strong></span><button type="button" class="btn btn-small" data-action="open-client" data-id="${escapeHtml(client.id)}">Abrir ficha</button></div></article>`;
   }
 
   function renderClientList() {
@@ -310,12 +314,71 @@
     return `<a href="${escapeHtml(telHref(client.telefone))}">${escapeHtml(client.telefone)}</a>`;
   }
 
+  function esperaOrcamento(iso) {
+    const delta = daysSince(iso);
+    if (delta < 0) {
+      const falta = -delta;
+      return `retorno em ${falta} dia${falta === 1 ? "" : "s"}`;
+    }
+    if (delta === 0) return "enviado hoje";
+    return `há ${delta} dia${delta === 1 ? "" : "s"}`;
+  }
+
+  function ehProposta(etapa) {
+    const texto = fold(etapa);
+    return texto.includes("proposta") && texto.includes("orcamento");
+  }
+
+  function formatarProgramacao(valor) {
+    const texto = String(valor || "").trim();
+    if (!texto) return "sem data programada";
+    const nomus = texto.match(/^(\d{2}\/\d{2}\/\d{4})(?:\s+(\d{2}:\d{2})(?::\d{2})?)?$/);
+    if (nomus) return nomus[2] ? `${nomus[1]} ${nomus[2]}` : nomus[1];
+    const iso = texto.match(/^(\d{4})-(\d{2})-(\d{2})(?:[T\s](\d{2}):(\d{2}))?/);
+    if (iso) {
+      const data = `${iso[3]}/${iso[2]}/${iso[1]}`;
+      return iso[4] ? `${data} ${iso[4]}:${iso[5]}` : data;
+    }
+    return texto;
+  }
+
+  function blocoProcessos(client, somenteProposta) {
+    const lista = (client.processos || []).filter((proc) => {
+      if (!proc || typeof proc !== "object") return false;
+      if (somenteProposta) return ehProposta(proc.etapa);
+      return ehProposta(proc.etapa) || String(proc.dataHoraProgramada || "").trim();
+    });
+    if (!lista.length) return "";
+    const cards = lista.map((proc) => {
+      const proposta = ehProposta(proc.etapa);
+      const kicker = proposta ? "Proposta / Orçamentos" : escapeHtml(proc.etapa || "Tarefa de vendas");
+      const prioridade = proc.prioridade ? escapeHtml(proc.prioridade) : "não informada";
+      const quando = escapeHtml(formatarProgramacao(proc.dataHoraProgramada));
+      const detalhe = proc.descricao ? `<p>${escapeHtml(proc.descricao)}</p>` : "";
+      return `<article class="process-card"><p class="process-kicker">${kicker}</p>${detalhe}<p><strong>Prioridade:</strong> ${prioridade}</p><p>Retorno programado: ${quando}</p></article>`;
+    }).join("");
+    if (somenteProposta) return `<div class="process-list">${cards}</div>`;
+    return `<section class="process-list"><h3>Tarefas programadas</h3>${cards}</section>`;
+  }
+
+  function blocoNfe(order) {
+    const info = order && order.nfe_info;
+    if (!info || typeof info !== "object") return "";
+    const numero = String(info.numero_nf || "").trim();
+    const transportadora = String(info.transportadora || "").trim();
+    const destino = String(info.destino_obra || "").trim();
+    if (!numero && !transportadora && !destino) return "";
+    const rotulo = numero ? `NF nº ${numero}` : "NF-e";
+    const faixa = transportadora ? `${rotulo} | ${transportadora}` : rotulo;
+    const entrega = destino ? `<span class="nfe-destino">📍 Destino/Obra: ${escapeHtml(destino)}</span>` : "";
+    return `<span class="nfe-linha"><span class="badge badge-nfe">${escapeHtml(faixa)}</span>${entrega}</span>`;
+  }
+
   function clientDrawerHtml(client) {
     const quotes = client.orcamentos.slice().sort((a, b) => a.data.localeCompare(b.data));
     const quoteBlock = quotes.length
       ? `<section><h3>${quotes.length > 1 ? "Orçamentos enviados sem retorno" : "Orçamento enviado sem retorno"}</h3><ul class="quote-block">${quotes.map((quote) => {
-        const delta = daysSince(quote.data);
-        const wait = delta === 0 ? "enviado hoje" : `há ${delta} dia${delta === 1 ? "" : "s"}`;
+        const wait = esperaOrcamento(quote.data);
         return `<li class="quote-line"><span><strong>${escapeHtml(quote.item)}</strong><span class="meta">${escapeHtml(quote.codigo)} · ${formatDate(quote.data)} · ${wait}</span></span><strong class="money">${money(quote.valor)}</strong></li>`;
       }).join("")}</ul></section>`
       : "";
@@ -323,7 +386,7 @@
     const orders = client.pedidos.length
       ? `<ul class="orders">${client.pedidos.map((order) => {
         const condicao = order.condicaoPagamento ? `<span class="meta">Condição: ${escapeHtml(order.condicaoPagamento)}</span>` : "";
-        return `<li class="order-row"><span><strong>${escapeHtml(order.item)}</strong><span class="meta">${escapeHtml(order.codigo)} · ${formatDate(order.data)} · ${order.quantidade} un. · Nomus</span>${condicao}</span><strong class="money">${money(order.valor)}</strong></li>`;
+        return `<li class="order-row"><span><strong>${escapeHtml(order.item)}</strong><span class="meta">${escapeHtml(order.codigo)} · ${formatDate(order.data)} · ${order.quantidade} un. · Nomus</span>${condicao}${blocoNfe(order)}</span><strong class="money">${money(order.valor)}</strong></li>`;
       }).join("")}</ul>`
       : '<p class="empty">Nenhum pedido recente retornado pelo Nomus para esta ficha.</p>';
 
@@ -343,6 +406,7 @@
         ${detail("Última compra", client.ultimaCompra ? formatDate(client.ultimaCompra) : "Sem compra registrada")}
         ${detail("Linhas", `<div class="chips">${chips(client.linhas)}</div>`, true)}
       </dl>
+      ${blocoProcessos(client, false)}
       ${quoteBlock}
       <section>
         <h3>Histórico recente de pedidos</h3>

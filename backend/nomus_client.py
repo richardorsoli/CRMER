@@ -42,7 +42,7 @@ class NomusAuthError(NomusError):
 
 
 class NomusClient:
-    """Sessão única para /clientes, /produtos e /pedidos.
+    """Sessão única para /clientes, /produtos, /pedidos, /processos e /nfes.
 
     A paginação para quando a página volta vazia. Depois de cada página
     bem-sucedida, a próxima espera 1,5 s. O 429 que sobrevive ao adaptador
@@ -202,6 +202,32 @@ class NomusClient:
                 break
         return coletados
 
+    def listar_processos(self, paginas: int = 3) -> list[dict[str, Any]]:
+        """Lê /processos nas páginas pedidas e fica só com a equipe de Vendas."""
+        return [item for item in self._listar_paginas("processos", paginas) if _equipe_e_vendas(item)]
+
+    def listar_nfes(self, paginas: int = 3) -> list[dict[str, Any]]:
+        """Lê /nfes nas páginas pedidas, com o XML de cada nota."""
+        return self._listar_paginas("nfes", paginas)
+
+    def _listar_paginas(self, recurso: str, paginas: int) -> list[dict[str, Any]]:
+        """Paginação curta. A pausa de 1,5 s entre páginas bem-sucedidas fica no `_get`."""
+        coletados: list[dict[str, Any]] = []
+        assinaturas: set[str] = set()
+        limite = max(0, int(paginas))
+        for pagina in range(1, limite + 1):
+            _anunciar_pagina(recurso, pagina)
+            payload = self._get(recurso, {"pagina": pagina})
+            linhas = _como_lista(payload, recurso, pagina)
+            if not linhas:
+                break
+            assinatura = _assinatura(linhas[0])
+            if assinatura in assinaturas:
+                break
+            assinaturas.add(assinatura)
+            coletados.extend(linhas)
+        return coletados
+
     def listar(self, recurso: str) -> list[dict[str, Any]]:
         if recurso not in RECURSOS:
             raise NomusError(f"Recurso Nomus desconhecido: {recurso}")
@@ -304,6 +330,13 @@ class RecuoNomus(Retry):
             return 0.0
         valor = self.backoff_factor * (2 ** (consecutivos - 1))
         return float(max(0, min(self.backoff_max, valor)))
+
+
+def _equipe_e_vendas(registro: dict[str, Any]) -> bool:
+    equipe = registro.get("equipe")
+    if isinstance(equipe, dict):
+        equipe = equipe.get("nome") or equipe.get("descricao") or ""
+    return str(equipe or "").strip().casefold() == "vendas"
 
 
 def _anunciar_pagina(recurso: str, pagina: int) -> None:

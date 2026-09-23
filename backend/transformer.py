@@ -1,13 +1,15 @@
 """Converte o payload do Nomus na ficha que a carteira do CRMER já entende.
 
-Cada cliente sai em uma única fila. Orçamento aberto não vem nestes
-endpoints, então a fila `resposta` fica vazia nesta consulta.
+Cada cliente sai em uma única fila. Processo de vendas na etapa
+Proposta / Orçamentos alimenta a fila `resposta`. Sem esses processos,
+a fila de orçamento continua vazia: /pedidos não traz proposta.
 """
 
 from __future__ import annotations
 
 import re
 import unicodedata
+import xml.etree.ElementTree as ET
 from datetime import date, datetime, timedelta
 from typing import Any, Literal
 
@@ -22,6 +24,11 @@ ENTREGA_PROXIMA_DIAS = 7
 PEDIDOS_NA_FICHA = 12
 LINHAS = ("Gás", "Saneamento", "Elétrica", "Fechamento")
 Ranking = Literal["contato", "resposta", "sazonal", "inativos"]
+ETAPA_PROPOSTA = "Proposta / Orçamentos"
+_NS_NFE = {"nfe": "http://www.portalfiscal.inf.br/nfe"}
+_STATUS_PROCESSO_FECHADO = frozenset(
+    {"concluido", "concluida", "cancelado", "cancelada", "encerrado", "encerrada", "finalizado", "finalizada"}
+)
 
 _GRUPOS = {
     "gas": "Gás",
@@ -301,6 +308,14 @@ class PedidoNomus(ModeloNomus):
         return _texto(valor)
 
 
+class NfeInfoCrmer(BaseModel):
+    pedido_numero: str = ""
+    numero_nf: str = ""
+    transportadora: str = ""
+    destino_obra: str = ""
+    chave_nfe: str = ""
+
+
 class PedidoCrmer(BaseModel):
     codigo: str
     data: str
@@ -308,6 +323,7 @@ class PedidoCrmer(BaseModel):
     quantidade: float
     valor: float
     condicaoPagamento: str = ""
+    nfe_info: NfeInfoCrmer | None = None
 
 
 class ClienteCrmer(BaseModel):
@@ -341,9 +357,28 @@ class ClienteCrmer(BaseModel):
     anotacoes: str = ""
     pedidos: list[PedidoCrmer]
     orcamentos: list[dict[str, Any]] = Field(default_factory=list)
+    processos: list[ProcessoCrmer] = Field(default_factory=list)
     nomusId: int
     codigoNomus: str = ""
     ativoNomus: bool = True
+
+
+class ProcessoCrmer(BaseModel):
+    """Tarefa de vendas ligada à pessoa do cliente."""
+
+    id: str = ""
+    equipe: str = ""
+    etapa: str = ""
+    prioridade: str = ""
+    dataHoraProgramada: str = ""
+    dataEnvio: str = ""
+    descricao: str = ""
+    pessoa: str = ""
+    documento: str = ""
+    valor: float = 0
+
+
+ClienteCrmer.model_rebuild()
 
 
 class ProdutoCrmer(BaseModel):
@@ -507,12 +542,291 @@ class _PedidoPronto(BaseModel):
     itens: list[_ItemPreco] = Field(default_factory=list)
 
 
+def _vazio_nfe() -> dict[str, str]:
+    return {
+        "pedido_numero": "",
+        "numero_nf": "",
+        "transportadora": "",
+        "destino_obra": "",
+        "chave_nfe": "",
+    }
+
+
+def _texto_nodo(nodo: ET.Element | None) -> str:
+    if nodo is None or nodo.text is None:
+        return ""
+    return " ".join(nodo.text.split())
+
+
+def _encontrar(raiz: ET.Element, caminho: str) -> ET.Element | None:
+    nodo = raiz.find(caminho, _NS_NFE)
+    if nodo is not None:
+        return nodo
+    return raiz.find(caminho.replace("nfe:", ""))
+
+
+def _encontrar_todos(raiz: ET.Element, caminho: str) -> list[ET.Element]:
+    achados = raiz.findall(caminho, _NS_NFE)
+    if achados:
+        return achados
+    return raiz.findall(caminho.replace("nfe:", ""))
+
+
+def extrair_dados_xml_nfe(xml_string: str | None) -> dict[str, str]:
+    """Lê o XML da NF-e. XML vazio, None ou malformado devolve campos vazios."""
+    dados, _numeros = _ler_xml_nfe(xml_string)
+    return dados
+
+
+def _ler_xml_nfe(xml_string: str | None) -> tuple[dict[str, str], list[str]]:
+    vazio = _vazio_nfe()
+    if xml_string is None:
+        return vazio, []
+    if isinstance(xml_string, bytes):
+        xml_string = xml_string.decode("utf-8", errors="replace")
+    if not isinstance(xml_string, str) or not xml_string.strip():
+        return vazio, []
+    try:
+        raiz = ET.fromstring(xml_string.lstrip("\ufeff").strip())
+    except ET.ParseError:
+        return vazio, []
+
+    numeros: list[str] = []
+    for nodo in _encontrar_todos(raiz, ".//nfe:det/nfe:prod/nfe:xPed"):
+        numero = _texto_nodo(nodo)
+        if numero and numero not in numeros:
+            numeros.append(numero)
+
+    municipio = _texto_nodo(_encontrar(raiz, ".//nfe:dest/nfe:enderDest/nfe:xMun"))
+    uf = _texto_nodo(_encontrar(raiz, ".//nfe:dest/nfe:enderDest/nfe:UF"))
+    # infCpl traz o endereço de entrega da obra; a cidade do destinatário cobre a nota sem esse texto.
+    complemento = _texto_nodo(_encontrar(raiz, ".//nfe:infAdic/nfe:infCpl"))
+    if complemento:
+        destino = complemento
+    elif municipio and uf:
+        destino = f"{municipio}/{uf}"
+    else:
+        destino = municipio or uf
+
+    chave = ""
+    inf = _encontrar(raiz, ".//nfe:infNFe")
+    if inf is not None:
+        ident = str(inf.attrib.get("Id") or "").strip()
+        if ident.lower().startswith("nfe"):
+            ident = ident[3:]
+        chave = ident
+    if not chave:
+        chave = _texto_nodo(_encontrar(raiz, ".//nfe:chNFe"))
+
+    return (
+        {
+            "pedido_numero": numeros[0] if numeros else "",
+            "numero_nf": _texto_nodo(_encontrar(raiz, ".//nfe:ide/nfe:nNF")),
+            "transportadora": _texto_nodo(_encontrar(raiz, ".//nfe:transp/nfe:transporta/nfe:xNome")),
+            "destino_obra": destino,
+            "chave_nfe": chave,
+        },
+        numeros,
+    )
+
+
+def _chaves_pedido_nfe(numero: str) -> list[str]:
+    chaves: list[str] = []
+    limpo = re.sub(r"\s+", "", numero or "").casefold()
+    if limpo:
+        chaves.append(f"txt:{limpo}")
+    digitos = re.sub(r"\D", "", numero or "").lstrip("0")
+    if digitos:
+        chaves.append(f"num:{digitos}")
+    return chaves
+
+
+def _indexar_nfes(brutos: list[dict[str, Any]] | None) -> dict[str, dict[str, str]]:
+    """Primeira NF-e de cada pedido ganha. Páginas recentes chegam antes."""
+    indice: dict[str, dict[str, str]] = {}
+    if not brutos:
+        return indice
+    for bruto in brutos:
+        if not isinstance(bruto, dict):
+            continue
+        xml = bruto.get("xml") if isinstance(bruto.get("xml"), str) else bruto.get("xmlNfe")
+        if not isinstance(xml, str):
+            xml = ""
+        dados, numeros = _ler_xml_nfe(xml)
+        if not dados["chave_nfe"]:
+            dados["chave_nfe"] = _texto(bruto.get("chave") or bruto.get("chaveNfe") or bruto.get("chave_nfe"))
+        if not dados["numero_nf"]:
+            dados["numero_nf"] = _texto(bruto.get("numero") or bruto.get("nNF") or bruto.get("numeroNf"))
+        if dados["pedido_numero"] and dados["pedido_numero"] not in numeros:
+            numeros.insert(0, dados["pedido_numero"])
+        if not any(dados[campo] for campo in ("numero_nf", "transportadora", "destino_obra", "chave_nfe")):
+            continue
+        for numero in numeros:
+            for chave in _chaves_pedido_nfe(numero):
+                indice.setdefault(chave, dados)
+    return indice
+
+
+def _nfe_do_pedido(codigo: str, indice: dict[str, dict[str, str]]) -> dict[str, str] | None:
+    if not indice or not codigo:
+        return None
+    for chave in _chaves_pedido_nfe(codigo):
+        achado = indice.get(chave)
+        if achado:
+            return achado
+    return None
+
+
+def _eh_equipe_vendas(bruto: dict[str, Any]) -> bool:
+    equipe = bruto.get("equipe")
+    if isinstance(equipe, dict):
+        equipe = equipe.get("nome") or equipe.get("descricao") or ""
+    return _dobrar(_texto(equipe)) == "vendas"
+
+
+def _processo_aberto(bruto: dict[str, Any]) -> bool:
+    for campo in ("concluido", "concluida", "encerrado", "cancelado", "finalizado"):
+        valor = bruto.get(campo)
+        if valor is True or (isinstance(valor, str) and valor.strip().casefold() in {"1", "true", "sim", "s"}):
+            return False
+    status = _dobrar(_texto(bruto.get("status") or bruto.get("situacao") or bruto.get("situacaoProcesso")))
+    return status not in _STATUS_PROCESSO_FECHADO
+
+
+def _eh_etapa_proposta(etapa: str) -> bool:
+    texto = _dobrar(etapa)
+    return "proposta" in texto and "orcamento" in texto
+
+
+def _pessoa_campos(bruto: dict[str, Any]) -> tuple[str, str, str]:
+    pessoa = bruto.get("pessoa")
+    if pessoa is None:
+        pessoa = bruto.get("cliente") or ""
+    if isinstance(pessoa, str):
+        return "", "", pessoa.strip()
+    if not isinstance(pessoa, dict):
+        return "", "", ""
+    ident = pessoa.get("id")
+    if ident is None:
+        ident = pessoa.get("idPessoa") or pessoa.get("idCliente") or ""
+    documento = pessoa.get("documento") or pessoa.get("cnpj") or pessoa.get("cpfCnpj") or pessoa.get("cpf_cnpj") or ""
+    nome = pessoa.get("nome") or pessoa.get("razaoSocial") or pessoa.get("nomeFantasia") or ""
+    return _texto(ident), _texto(documento), _texto(nome)
+
+
+def _pontuar_pessoa(cliente: ClienteNomus, ident: str, documento: str, nome: str) -> int:
+    if ident and ident == str(cliente.id):
+        return 4
+    doc = re.sub(r"\D", "", documento)
+    cnpj = re.sub(r"\D", "", cliente.cnpj)
+    if doc and cnpj and doc == cnpj:
+        return 3
+    alvo = _dobrar(nome)
+    if not alvo:
+        return 0
+    nomes = {_dobrar(cliente.razaoSocial), _dobrar(cliente.nome)}
+    nomes.discard("")
+    if alvo in nomes:
+        return 2
+    if len(alvo) >= 8 and any(alvo in item or item in alvo for item in nomes):
+        return 1
+    return 0
+
+
+def _iso_flex(valor: Any) -> str:
+    if valor is None:
+        return ""
+    texto = str(valor).strip()
+    if not texto:
+        return ""
+    if len(texto) >= 10 and texto[4] == "-" and texto[7] == "-":
+        return texto[:10]
+    try:
+        return parse_nomus_date(texto).date().isoformat()
+    except ValueError:
+        return ""
+
+
+def _processo_crmer(bruto: dict[str, Any], nome: str, documento: str) -> ProcessoCrmer:
+    etapa = _texto(bruto.get("etapa") or bruto.get("nomeEtapa") or bruto.get("etapaProcesso"))
+    programada = _texto(bruto.get("dataHoraProgramada") or bruto.get("dataProgramada"))
+    descricao = _texto(bruto.get("descricao") or bruto.get("titulo") or bruto.get("assunto") or bruto.get("nome"))
+    try:
+        bruto_valor = bruto.get("valor")
+        if bruto_valor in (None, ""):
+            bruto_valor = bruto.get("valorTotal") or 0
+        valor = _dinheiro(bruto_valor)
+    except ValueError:
+        valor = 0.0
+    envio = _iso_flex(
+        bruto.get("dataCriacao")
+        or bruto.get("dataAbertura")
+        or bruto.get("dataEnvio")
+        or bruto.get("dataEmissao")
+        or bruto.get("data")
+    )
+    return ProcessoCrmer(
+        id=_texto(bruto.get("id")),
+        equipe="Vendas",
+        etapa=etapa,
+        prioridade=_texto(bruto.get("prioridade") or bruto.get("nomePrioridade")),
+        dataHoraProgramada=programada,
+        dataEnvio=envio,
+        descricao=descricao,
+        pessoa=nome,
+        documento=documento,
+        valor=round(valor, 2),
+    )
+
+
+def _orcamento_de_processo(processo: ProcessoCrmer) -> dict[str, Any]:
+    return {
+        "codigo": processo.id or "Processo",
+        "data": processo.dataEnvio or _iso_flex(processo.dataHoraProgramada),
+        "item": processo.descricao or processo.etapa or ETAPA_PROPOSTA,
+        "valor": processo.valor,
+        "prioridade": processo.prioridade,
+        "dataHoraProgramada": processo.dataHoraProgramada,
+    }
+
+
+def _agrupar_processos(
+    brutos: list[dict[str, Any]] | None,
+    clientes: list[ClienteNomus],
+    avisos: list[str],
+) -> dict[int, list[ProcessoCrmer]]:
+    grupos: dict[int, list[ProcessoCrmer]] = {cliente.id: [] for cliente in clientes}
+    if not brutos:
+        return grupos
+    sem_cliente = 0
+    for bruto in brutos:
+        if not isinstance(bruto, dict) or not _eh_equipe_vendas(bruto) or not _processo_aberto(bruto):
+            continue
+        ident, documento, nome = _pessoa_campos(bruto)
+        melhor: ClienteNomus | None = None
+        pontos = 0
+        for cliente in clientes:
+            nota = _pontuar_pessoa(cliente, ident, documento, nome)
+            if nota > pontos:
+                melhor = cliente
+                pontos = nota
+        if melhor is None:
+            sem_cliente += 1
+            continue
+        grupos[melhor.id].append(_processo_crmer(bruto, nome, documento))
+    if sem_cliente:
+        avisos.append(f"{sem_cliente} processo(s) de vendas não entraram porque a pessoa não está na carteira.")
+    return grupos
+
+
 def montar_carteira(
     clientes_raw: list[dict[str, Any]],
     produtos_raw: list[dict[str, Any]],
     pedidos_raw: list[dict[str, Any]],
     vendedor_id: int = VENDEDOR_NATALIA,
     referencia: date = DATA_REFERENCIA,
+    processos_raw: list[dict[str, Any]] | None = None,
+    nfes_raw: list[dict[str, Any]] | None = None,
 ) -> CarteiraExport:
     avisos: list[str] = []
     produtos = _validar_produtos(produtos_raw, avisos)
@@ -562,16 +876,29 @@ def montar_carteira(
         cliente.id: _faturamento_12m(por_cliente[cliente.id], referencia) for cliente in da_natalia
     }
     curvas = _curva_abc(faturamento)
+    processos_por_cliente = _agrupar_processos(processos_raw, da_natalia, avisos)
+    nfes_por_pedido = _indexar_nfes(nfes_raw)
     fichas = [
-        _ficha(cliente, por_cliente[cliente.id], faturamento[cliente.id], curvas[cliente.id], referencia)
+        _ficha(
+            cliente,
+            por_cliente[cliente.id],
+            faturamento[cliente.id],
+            curvas[cliente.id],
+            referencia,
+            processos_por_cliente.get(cliente.id, []),
+            nfes_por_pedido,
+        )
         for cliente in da_natalia
     ]
     fichas.sort(key=lambda ficha: _dobrar(ficha.razaoSocial))
     produtos_usados = _produtos_da_carteira(catalogo, produtos_citados)
     historico = _historico(por_cliente)
-    avisos.append(
-        "Nenhum cliente foi para a fila de orçamento: /pedidos não informa proposta em aberto."
-    )
+    if any(ficha.ranking == "resposta" for ficha in fichas):
+        avisos.append("A fila de orçamento usa processos de vendas na etapa Proposta / Orçamentos.")
+    else:
+        avisos.append(
+            "Nenhum cliente foi para a fila de orçamento: /pedidos não informa proposta em aberto."
+        )
     return CarteiraExport(
         TODAY=referencia.isoformat(),
         fonte="nomus-fase-1-consulta",
@@ -709,11 +1036,42 @@ def _ficha(
     faturamento: float,
     curva: str,
     referencia: date,
+    processos: list[ProcessoCrmer] | None = None,
+    nfes_por_pedido: dict[str, dict[str, str]] | None = None,
 ) -> ClienteCrmer:
     ultima = _ultima_compra(pedidos)
     ranking, prioridade, proximo, janela, resumo = _classificar(pedidos, ultima, curva, referencia)
     linhas = _linhas_dos_pedidos(pedidos)
     recentes = sorted(pedidos, key=lambda pedido: pedido.emissao or date.min, reverse=True)[:PEDIDOS_NA_FICHA]
+    tarefas = list(processos or [])
+    propostas = [tarefa for tarefa in tarefas if _eh_etapa_proposta(tarefa.etapa)]
+    orcamentos: list[dict[str, Any]] = []
+    if propostas:
+        # Orçamento aberto tira o cliente das outras filas: a negociação continua viva.
+        ranking = "resposta"
+        janela = ""
+        if any("alta" in _dobrar(proposta.prioridade) for proposta in propostas):
+            prioridade = "alta"
+        propostas_ordenadas = sorted(propostas, key=lambda proposta: proposta.dataHoraProgramada or "9999")
+        quando = propostas_ordenadas[0].dataHoraProgramada or "sem data programada"
+        resumo = f"Proposta em aberto ({len(propostas)}). Retorno programado: {quando}."
+        orcamentos = [_orcamento_de_processo(proposta) for proposta in propostas]
+        orcamentos.sort(key=lambda item: item.get("data") or "9999-99-99")
+    indice = nfes_por_pedido or {}
+    pedidos_ficha: list[PedidoCrmer] = []
+    for pedido in recentes:
+        info = _nfe_do_pedido(pedido.codigo, indice)
+        pedidos_ficha.append(
+            PedidoCrmer(
+                codigo=pedido.codigo,
+                data=_iso(pedido.emissao),
+                item=pedido.item,
+                quantidade=pedido.quantidade,
+                valor=pedido.valor,
+                condicaoPagamento=pedido.condicao,
+                nfe_info=NfeInfoCrmer.model_validate(info) if info else None,
+            )
+        )
     return ClienteCrmer(
         id=f"nomus-{cliente.id}",
         nomeFantasia=cliente.nome or cliente.razaoSocial,
@@ -741,18 +1099,9 @@ def _ficha(
         janelaSazonal=janela,
         resumo=resumo,
         anotacoes="",
-        pedidos=[
-            PedidoCrmer(
-                codigo=pedido.codigo,
-                data=_iso(pedido.emissao),
-                item=pedido.item,
-                quantidade=pedido.quantidade,
-                valor=pedido.valor,
-                condicaoPagamento=pedido.condicao,
-            )
-            for pedido in recentes
-        ],
-        orcamentos=[],
+        pedidos=pedidos_ficha,
+        orcamentos=orcamentos,
+        processos=tarefas,
         nomusId=cliente.id,
         codigoNomus=cliente.codigo,
         ativoNomus=cliente.ativo,

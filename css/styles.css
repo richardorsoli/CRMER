@@ -1053,6 +1053,46 @@ textarea {
 .badge-inativo { background: #f8e8ec; color: var(--inativo); }
 .badge-alta { background: #fff4e5; color: #8a4b00; }
 .badge-curva { background: #eef1f4; color: #3e4c5a; }
+.badge-nfe { background: #e7f0ea; color: #1d4a32; }
+
+.process-list {
+  display: grid;
+  gap: 8px;
+}
+
+.process-card {
+  padding: 10px 12px;
+  border: 1px solid var(--line);
+  border-left: 3px solid var(--resposta);
+  background: #f4f7fb;
+  display: grid;
+  gap: 2px;
+}
+
+.process-kicker {
+  font-size: 12px;
+  font-weight: 750;
+  color: var(--resposta);
+}
+
+.process-card p {
+  margin: 0;
+  font-size: 13px;
+}
+
+.nfe-linha {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 4px;
+  margin-top: 6px;
+}
+
+.nfe-destino {
+  font-size: 13px;
+  font-weight: 650;
+  color: var(--ink);
+}
 
 #drawer-root {
   position: fixed;

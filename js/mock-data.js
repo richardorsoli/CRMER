@@ -115,7 +115,14 @@
           "data": "2026-08-12",
           "item": "Caixa de hidrômetro metálica, 1 medidor",
           "quantidade": 40,
-          "valor": 18400
+          "valor": 18400,
+          "nfe_info": {
+            "pedido_numero": "NM-10482",
+            "numero_nf": "45821",
+            "transportadora": "TransOeste Cargas",
+            "destino_obra": "Obra Vila Mariana — Rua Domingos de Morais, 1200, São Paulo/SP",
+            "chave_nfe": "35260811111110000101550010000458211000045821"
+          }
         },
         {
           "codigo": "NM-9860",
@@ -274,6 +281,17 @@
           "data": "2026-09-16",
           "item": "Kit de ventilação para abrigo de gás",
           "valor": 6200
+        }
+      ],
+      "processos": [
+        {
+          "id": "77",
+          "equipe": "Vendas",
+          "etapa": "Proposta / Orçamentos",
+          "prioridade": "Alta",
+          "dataHoraProgramada": "24/09/2026 09:30:00",
+          "descricao": "Abrigo de gás GLP da obra em Perdizes",
+          "pessoa": "Instaladora Paulista"
         }
       ]
     },

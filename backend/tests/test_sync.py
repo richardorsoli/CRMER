@@ -20,6 +20,7 @@ from backend.nomus_client import (
 )
 from backend.sync_runner import clientes_em_cache, construir_parser, reunir_clientes
 from backend.transformer import (
+    extrair_dados_xml_nfe,
     montar_carteira,
     parse_nomus_date,
     parse_ptbr_float,
@@ -217,6 +218,116 @@ class CarteiraTests(unittest.TestCase):
         self.assertTrue(any("Cliente ignorado" in aviso for aviso in carteira.avisos))
 
 
+_XML_NFE = """<?xml version="1.0" encoding="UTF-8"?>
+<nfeProc xmlns="http://www.portalfiscal.inf.br/nfe">
+  <NFe>
+    <infNFe Id="NFe35260911222333000181550010000012341000012345">
+      <ide><nNF>1234</nNF></ide>
+      <dest><enderDest><xMun>Campinas</xMun><UF>SP</UF></enderDest></dest>
+      <det nItem="1"><prod><xPed>PD 00010</xPed></prod></det>
+      <transp><transporta><xNome>Transportadora Obra Ltda</xNome></transporta></transp>
+      <infAdic><infCpl>Entrega na obra: Rua das Flores, 100 - Campinas/SP</infCpl></infAdic>
+    </infNFe>
+  </NFe>
+  <protNFe><infProt><chNFe>35260911222333000181550010000012341000012345</chNFe></infProt></protNFe>
+</nfeProc>
+"""
+
+
+class NfeProcessoTests(unittest.TestCase):
+    def test_parser_de_xml_no_modelo_da_nfe(self):
+        dados = extrair_dados_xml_nfe(_XML_NFE)
+        self.assertEqual(dados["pedido_numero"], "PD 00010")
+        self.assertEqual(dados["numero_nf"], "1234")
+        self.assertEqual(dados["transportadora"], "Transportadora Obra Ltda")
+        self.assertEqual(dados["destino_obra"], "Entrega na obra: Rua das Flores, 100 - Campinas/SP")
+        self.assertEqual(dados["chave_nfe"], "35260911222333000181550010000012341000012345")
+
+        sem_complemento = _XML_NFE.replace(
+            "<infAdic><infCpl>Entrega na obra: Rua das Flores, 100 - Campinas/SP</infCpl></infAdic>",
+            "",
+        )
+        self.assertEqual(extrair_dados_xml_nfe(sem_complemento)["destino_obra"], "Campinas/SP")
+        self.assertEqual(extrair_dados_xml_nfe(None)["numero_nf"], "")
+        self.assertEqual(extrair_dados_xml_nfe("<nfe")["pedido_numero"], "")
+
+    def test_pedido_recebe_nfe_pelo_xped(self):
+        carteira = montar_carteira(
+            [_cliente(1, "Construtora Pacaembu")],
+            [_produto(1, "Saneamento", "Caixa de hidrômetro")],
+            [
+                _pedido(10, 1, "01/09/2026", "1000,00", 1),
+                _pedido(11, 1, "02/09/2026", "50,00", 1),
+            ],
+            nfes_raw=[{"id": 9, "xml": _XML_NFE}],
+        )
+        por_codigo = {pedido.codigo: pedido for pedido in carteira.clients[0].pedidos}
+        vinculado = por_codigo["PD 00010"].nfe_info
+        self.assertIsNotNone(vinculado)
+        self.assertEqual(vinculado.numero_nf, "1234")
+        self.assertEqual(vinculado.transportadora, "Transportadora Obra Ltda")
+        self.assertIn("Rua das Flores", vinculado.destino_obra)
+        self.assertIsNone(por_codigo["PD 00011"].nfe_info)
+
+    def test_processo_de_venda_vai_para_o_cliente_pela_pessoa(self):
+        carteira = montar_carteira(
+            [
+                _cliente(1, "Construtora Pacaembu", fantasia="Pacaembu"),
+                _cliente(2, "Instaladora Beta", fantasia="Beta"),
+            ],
+            [_produto(1, "Gás", "Abrigo de gás GLP")],
+            [_pedido(10, 1, "01/01/2026", "5000,00", 1)],
+            processos_raw=[
+                {
+                    "id": 77,
+                    "equipe": "Vendas",
+                    "etapa": "Proposta / Orçamentos",
+                    "prioridade": "Alta",
+                    "dataHoraProgramada": "25/09/2026 09:00:00",
+                    "descricao": "Abrigo de gás GLP da obra escola",
+                    "valor": "86400,00",
+                    "pessoa": {"id": 1, "nome": "Construtora Pacaembu", "documento": "11222333000181"},
+                },
+                {
+                    "id": 78,
+                    "equipe": "Produção",
+                    "etapa": "Proposta / Orçamentos",
+                    "pessoa": {"id": 1, "nome": "Construtora Pacaembu"},
+                },
+                {
+                    "id": 79,
+                    "equipe": "Vendas",
+                    "etapa": "Proposta / Orçamentos",
+                    "concluido": True,
+                    "pessoa": {"nome": "Construtora Pacaembu"},
+                },
+                {
+                    "id": 80,
+                    "equipe": "Vendas",
+                    "etapa": "Visita à obra",
+                    "prioridade": "Média",
+                    "dataHoraProgramada": "23/09/2026 14:00:00",
+                    "descricao": "Confirmar shaft na obra",
+                    "pessoa": "Instaladora Beta",
+                },
+            ],
+        )
+        por_id = {ficha.nomusId: ficha for ficha in carteira.clients}
+        pacaembu = por_id[1]
+        self.assertEqual(pacaembu.ranking, "resposta")
+        self.assertEqual([proc.id for proc in pacaembu.processos], ["77"])
+        self.assertEqual(pacaembu.processos[0].pessoa, "Construtora Pacaembu")
+        self.assertEqual(pacaembu.processos[0].prioridade, "Alta")
+        self.assertEqual(pacaembu.processos[0].dataHoraProgramada, "25/09/2026 09:00:00")
+        self.assertEqual(pacaembu.orcamentos[0]["item"], "Abrigo de gás GLP da obra escola")
+        self.assertEqual(pacaembu.orcamentos[0]["valor"], 86400.0)
+        self.assertEqual(pacaembu.orcamentos[0]["data"], "2026-09-25")
+        beta = por_id[2]
+        self.assertEqual([proc.id for proc in beta.processos], ["80"])
+        self.assertEqual(beta.processos[0].pessoa, "Instaladora Beta")
+        self.assertNotEqual(beta.ranking, "resposta")
+
+
 class ClienteHttpTests(unittest.TestCase):
     def test_pagina_ate_lista_vazia_e_respeita_retry_after(self):
         sessao = _Sessao(
@@ -407,6 +518,47 @@ class ClienteHttpTests(unittest.TestCase):
         novos = cliente.listar_clientes_recentes({"id:4"})
         self.assertEqual([item["id"] for item in novos], [9, 8])
         self.assertEqual(len(sessao.chamadas), 1)
+
+    def test_processos_paginam_com_pausa_e_filtram_vendas(self):
+        sessao = _Sessao(
+            [
+                _Resposta(200, [{"id": 1, "equipe": "Vendas"}, {"id": 2, "equipe": "Produção"}]),
+                _Resposta(200, [{"id": 3, "equipe": "vendas"}]),
+                _Resposta(200, []),
+            ]
+        )
+        esperas: list[float] = []
+        cliente = NomusClient(
+            base_url="https://ehe.example/rest",
+            auth_token="abc",
+            session=sessao,
+            dormir=esperas.append,
+        )
+        linhas = cliente.listar_processos(paginas=3)
+        self.assertEqual([item["id"] for item in linhas], [1, 3])
+        self.assertTrue(sessao.chamadas[0]["url"].endswith("/processos"))
+        self.assertEqual(sessao.chamadas[0]["params"], {"pagina": 1})
+        self.assertEqual(sessao.chamadas[1]["params"], {"pagina": 2})
+        self.assertEqual(esperas, [1.5, 1.5])
+
+    def test_nfes_devolve_o_xml_das_paginas_recentes(self):
+        sessao = _Sessao(
+            [
+                _Resposta(200, [{"id": 9, "xml": "<NFe/>"}]),
+                _Resposta(200, []),
+            ]
+        )
+        cliente = NomusClient(
+            base_url="https://ehe.example/rest",
+            auth_token="abc",
+            session=sessao,
+            espera_pagina=0,
+            dormir=lambda _: None,
+        )
+        notas = cliente.listar_nfes(paginas=2)
+        self.assertEqual(notas[0]["xml"], "<NFe/>")
+        self.assertTrue(sessao.chamadas[0]["url"].endswith("/nfes"))
+        self.assertEqual(sessao.chamadas[0]["params"], {"pagina": 1})
 
 
 class _FonteClientes:
