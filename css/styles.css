@@ -1841,38 +1841,94 @@ body.drawer-open {
   color: #9f1c1c;
 }
 
-.card-inline-form {
-  margin-bottom: 16px;
-  padding: 14px 16px;
-  border: 1px solid var(--line);
-  border-radius: 12px;
-  background: #fff;
+.linha-registro-contato td {
+  background: #f3f6fa;
+  padding: 14px 16px 16px;
+  border-bottom: 1px solid var(--line);
 }
 
 .inline-atividade {
   display: grid;
-  gap: 10px;
+  grid-template-columns: auto auto minmax(180px, 1fr) auto;
+  gap: 12px 16px;
+  align-items: end;
 }
 
-.inline-atividade label {
-  display: grid;
-  gap: 4px;
+.contato-opcoes {
+  margin: 0;
+  padding: 0;
+  border: 0;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  align-items: center;
+}
+
+.contato-opcoes legend {
+  width: 100%;
+  padding: 0;
+  margin-bottom: 2px;
+  font-size: 12px;
+  font-weight: 650;
+  color: var(--muted);
+}
+
+.contato-opcoes label {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  margin: 0;
+  padding: 6px 10px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: #fff;
   font-size: 13px;
   font-weight: 650;
+  cursor: pointer;
 }
 
-.inline-atividade select,
+.contato-opcoes label:has(input:checked) {
+  background: var(--ink);
+  color: #fff;
+  border-color: var(--ink);
+}
+
+.contato-opcoes input {
+  position: absolute;
+  opacity: 0;
+  pointer-events: none;
+}
+
+.contato-obs {
+  display: grid;
+  gap: 4px;
+  font-size: 12px;
+  font-weight: 650;
+  color: var(--muted);
+}
+
 .inline-atividade textarea {
   font: inherit;
+  font-weight: 450;
+  color: inherit;
   padding: 8px 10px;
   border: 1px solid var(--line);
   border-radius: 8px;
   background: #fff;
+  resize: vertical;
+  min-height: 64px;
 }
 
 .inline-atividade .form-actions {
   display: flex;
   gap: 8px;
+  align-items: center;
+}
+
+@media (max-width: 900px) {
+  .inline-atividade {
+    grid-template-columns: 1fr;
+  }
 }
 
 .modal-cliente .app-modal-caixa {

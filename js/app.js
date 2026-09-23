@@ -1169,22 +1169,16 @@
       return { client, resumo };
     }).filter((item) => passaFiltroAtividade(item.resumo));
     corpo.innerHTML = linhas.length
-      ? linhas.map(({ client, resumo }) => `<tr><td>${escapeHtml(client.razaoSocial)}</td><td>${escapeHtml(client.cidade || "—")}/${escapeHtml(client.uf || "—")}</td><td>${escapeHtml(client.contato || "—")}</td><td>${escapeHtml(resumo.texto)}</td><td><span class="${resumo.classe}">${escapeHtml(resumo.status)}</span></td><td><button type="button" class="btn btn-small" data-action="registrar-contato" data-id="${escapeHtml(client.id)}">+ Registrar Contato</button></td></tr>`).join("")
+      ? linhas.map(({ client, resumo }) => {
+        const aberto = String(state.atividadeClienteId) === String(client.id);
+        const linha = `<tr><td>${escapeHtml(client.razaoSocial)}</td><td>${escapeHtml(client.cidade || "—")}/${escapeHtml(client.uf || "—")}</td><td>${escapeHtml(client.contato || "—")}</td><td>${escapeHtml(resumo.texto)}</td><td><span class="${resumo.classe}">${escapeHtml(resumo.status)}</span></td><td><button type="button" class="btn btn-small${aberto ? " active" : ""}" data-action="registrar-contato" data-id="${escapeHtml(client.id)}" aria-expanded="${aberto}">${aberto ? "Fechar" : "+ Registrar Contato"}</button></td></tr>`;
+        return aberto ? linha + htmlLinhaRegistroContato() : linha;
+      }).join("")
       : '<tr><td colspan="6">Nenhum cliente neste filtro.</td></tr>';
-    renderFormularioAtividade();
   }
 
-  function renderFormularioAtividade() {
-    const caixa = document.getElementById("atividades-form-container");
-    if (!caixa) return;
-    const client = state.atividadeClienteId ? getClient(state.atividadeClienteId) : null;
-    if (!client) {
-      caixa.hidden = true;
-      caixa.innerHTML = "";
-      return;
-    }
-    caixa.hidden = false;
-    caixa.innerHTML = `<form id="form-atividade" class="inline-atividade"><p class="eyebrow">Registrar contato · ${escapeHtml(client.razaoSocial)}</p><label>Canal<select name="canal" required><option value="WhatsApp">WhatsApp</option><option value="E-mail">E-mail</option><option value="Ligação">Ligação</option></select></label><label>Resultado<select name="resultado" required><option value="Sucesso">Sucesso</option><option value="Sem sucesso">Sem sucesso</option></select></label><label>Observação<textarea name="observacao" rows="3"></textarea></label><div class="form-actions"><button type="submit" class="btn btn-accent">Salvar contato</button><button type="button" class="btn" data-action="cancelar-contato">Cancelar</button></div><p id="atividade-feedback" class="footnote" hidden></p></form>`;
+  function htmlLinhaRegistroContato() {
+    return `<tr class="linha-registro-contato"><td colspan="6"><form id="form-atividade" class="inline-atividade"><fieldset class="contato-opcoes"><legend>Meio de Contato</legend><label><input type="radio" name="canal" value="WhatsApp" checked> WhatsApp</label><label><input type="radio" name="canal" value="E-mail"> E-mail</label><label><input type="radio" name="canal" value="Ligação"> Ligação</label></fieldset><fieldset class="contato-opcoes"><legend>Resultado</legend><label><input type="radio" name="resultado" value="Sucesso" checked> Sucesso</label><label><input type="radio" name="resultado" value="Sem sucesso"> Sem sucesso</label></fieldset><label class="contato-obs">Observação<textarea name="observacao" rows="2" placeholder="O que aconteceu naquele contato..."></textarea></label><div class="form-actions"><button type="submit" class="btn btn-accent">Salvar Contato</button><button type="button" class="btn" data-action="cancelar-contato">Cancelar</button></div><p id="atividade-feedback" class="footnote" hidden></p></form></td></tr>`;
   }
 
   async function salvarAtividade(form) {
@@ -1804,12 +1798,13 @@
       renderAtividades();
     }
     if (action === "registrar-contato") {
-      state.atividadeClienteId = element.dataset.id;
-      renderFormularioAtividade();
+      const id = element.dataset.id;
+      state.atividadeClienteId = String(state.atividadeClienteId) === String(id) ? null : id;
+      renderAtividades();
     }
     if (action === "cancelar-contato") {
       state.atividadeClienteId = null;
-      renderFormularioAtividade();
+      renderAtividades();
     }
     if (action === "new-client") abrirModalCliente();
     if (action === "editar-cliente") abrirModalCliente(state.drawerId);
